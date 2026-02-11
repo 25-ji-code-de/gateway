@@ -30,7 +30,7 @@ export async function handleStickersAutocomplete(request, env, ctx) {
     const data = await upstreamResponse.json();
 
     // 构造响应
-    response = jsonResponse(data, {
+    response = jsonResponse(data, 200, {
       'Cache-Control': `public, max-age=${CACHE_TTL}`,
     });
 
