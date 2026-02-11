@@ -4,7 +4,10 @@
 
 ![GitHub License](https://img.shields.io/github/license/25-ji-code-de/gateway?style=flat-square&color=884499)
 ![GitHub stars](https://img.shields.io/github/stars/25-ji-code-de/gateway?style=flat-square&color=884499)
+![GitHub forks](https://img.shields.io/github/forks/25-ji-code-de/gateway?style=flat-square&color=884499)
+![GitHub issues](https://img.shields.io/github/issues/25-ji-code-de/gateway?style=flat-square&color=884499)
 ![GitHub last commit](https://img.shields.io/github/last-commit/25-ji-code-de/gateway?style=flat-square&color=884499)
+![GitHub repo size](https://img.shields.io/github/repo-size/25-ji-code-de/gateway?style=flat-square&color=884499)
 
 </div>
 
@@ -119,7 +122,6 @@ gateway/
 │       └── response.js      # 响应格式化
 │
 ├── README.md
-├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
 ├── SECURITY.md
@@ -271,6 +273,8 @@ GET /assets/prefetch?path=/mysekai/music/xxx.mp3
 ---
 
 <div align="center">
+
+**[SEKAI 生态](https://sekai.nightcord.de5.net)** 的一部分
 
 Made with 💜 by the [25-ji-code-de](https://github.com/25-ji-code-de) team
 
