@@ -1,0 +1,32 @@
+{
+  "name": "gateway",
+  "version": "1.0.0",
+  "description": "SEKAI 生态统一 API 网关 - Cloudflare Worker",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "npx wrangler deploy"
+  },
+  "keywords": [
+    "cloudflare-workers",
+    "api-gateway",
+    "sekai",
+    "cdn",
+    "r2",
+    "cache"
+  ],
+  "author": "25-ji-code-de",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/25-ji-code-de/gateway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/25-ji-code-de/gateway/issues"
+  },
+  "homepage": "https://github.com/25-ji-code-de/gateway#readme",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
