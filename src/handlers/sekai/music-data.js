@@ -3,6 +3,7 @@
 import { CONFIG, DATA_SOURCES } from '../../config/constants.js';
 import { jsonResponse, errorResponse } from '../../utils/response.js';
 import { createCacheKey, getCachedResponse, setCachedResponse } from '../../utils/cache.js';
+import { logCacheEvent } from '../../utils/analytics.js';
 
 export async function handleMusicData(request, env, ctx) {
   const url = new URL(request.url);
@@ -13,16 +14,23 @@ export async function handleMusicData(request, env, ctx) {
   // 第一层：边缘缓存
   if (!forceRefresh) {
     const cached = await getCachedResponse(cache, cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      logCacheEvent('music_data', true, 'edge');
+      return cached;
+    }
   }
 
   // 第二层：R2 缓存
   if (!forceRefresh) {
     const r2Result = await tryR2Cache(env, ctx, cache, cacheKey);
-    if (r2Result) return r2Result;
+    if (r2Result) {
+      logCacheEvent('music_data', true, 'r2');
+      return r2Result;
+    }
   }
 
   // 第三层：源站获取
+  logCacheEvent('music_data', false, 'origin');
   return await fetchAndCache(env, ctx, cache, cacheKey);
 }
 

@@ -7,9 +7,12 @@ import { handleUser } from './src/handlers/user/index.js';
 import { handleChat } from './src/handlers/chat/index.js';
 import { handleStudy } from './src/handlers/study/index.js';
 import { errorResponse } from './src/utils/response.js';
+import { logMetrics, logError } from './src/utils/analytics.js';
 
 export default {
   async fetch(request, env, ctx) {
+    const startTime = Date.now();
+
     // CORS 预检
     const corsResponse = handleCORS(request);
     if (corsResponse) return addCORSHeaders(corsResponse);
@@ -38,10 +41,23 @@ export default {
         response = errorResponse('Not Found', 404);
       }
 
+      // 记录请求指标
+      const duration = Date.now() - startTime;
+      ctx.waitUntil(
+        Promise.resolve(logMetrics(ctx, request, response, duration))
+      );
+
       return addCORSHeaders(response);
     } catch (error) {
-      console.error('Unhandled error:', error);
+      // 记录错误
+      logError('fetch', error, { path, method: request.method });
+
       const response = errorResponse('Internal Server Error', 500, error.message);
+      const duration = Date.now() - startTime;
+      ctx.waitUntil(
+        Promise.resolve(logMetrics(ctx, request, response, duration, { error: true }))
+      );
+
       return addCORSHeaders(response);
     }
   },
