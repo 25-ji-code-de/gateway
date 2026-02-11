@@ -1,6 +1,7 @@
 // SEKAI 路由处理
 
 import { handleMusicData } from './music-data.js';
+import { handleStickersAutocomplete } from './stickers-autocomplete.js';
 import { errorResponse } from '../../utils/response.js';
 
 export async function handleSekai(request, env, ctx) {
@@ -9,6 +10,10 @@ export async function handleSekai(request, env, ctx) {
 
   if (path === '/sekai/music_data.json') {
     return await handleMusicData(request, env, ctx);
+  }
+
+  if (path === '/sekai/stickers/autocomplete.json') {
+    return await handleStickersAutocomplete(request, env, ctx);
   }
 
   return errorResponse('Not Found', 404);

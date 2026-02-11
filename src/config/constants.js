@@ -12,6 +12,7 @@ export const DATA_SOURCES = {
   musics: 'https://sekai-world.github.io/sekai-master-db-diff/musics.json',
   musicVocals: 'https://sekai-world.github.io/sekai-master-db-diff/musicVocals.json',
   musicTitles: 'https://i18n-json.sekai.best/zh-CN/music_titles.json',
+  stickersAutocomplete: 'https://sticker.nightcord.de5.net/autocomplete.json',
 };
 
 export const ORIGIN = {
