@@ -4,6 +4,7 @@ import { errorResponse } from '../../utils/response.js';
 import { authenticate } from '../../middleware/auth.js';
 import { getUserStats, reportUserEvent, getUserActivity } from './stats.js';
 import { getUserAchievements } from './achievements.js';
+import { getSyncData, uploadSyncData } from './sync.js';
 
 export async function handleUser(request, env, ctx) {
   // 认证检查
@@ -30,6 +31,14 @@ export async function handleUser(request, env, ctx) {
 
   if (path === '/user/achievements' && request.method === 'GET') {
     return getUserAchievements(request, env, user);
+  }
+
+  if (path === '/user/sync' && request.method === 'GET') {
+    return getSyncData(request, env, user);
+  }
+
+  if (path === '/user/sync' && request.method === 'POST') {
+    return uploadSyncData(request, env, user);
   }
 
   return errorResponse('Not found', 404);

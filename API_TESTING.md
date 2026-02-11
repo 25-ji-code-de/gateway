@@ -113,6 +113,87 @@ Authorization: Bearer <access_token>
 }
 ```
 
+### 5. 获取云端同步数据
+
+```bash
+GET /user/sync?project=25ji
+Authorization: Bearer <access_token>
+```
+
+**响应示例（首次同步）：**
+```json
+{
+  "user_id": "user_xxx",
+  "project": "25ji",
+  "data": null,
+  "version": 0,
+  "updated_at": null
+}
+```
+
+**响应示例（已有数据）：**
+```json
+{
+  "user_id": "user_xxx",
+  "project": "25ji",
+  "data": {
+    "pomodoro_count": 10,
+    "streak_days": 3,
+    "last_login_date": "2026-02-11",
+    "songs_played": 25,
+    "total_time": 36000,
+    "today_time": 3600,
+    "today_date": "2026-02-11",
+    "unlocked_achievements": ["first_pomodoro", "pomodoro_10"],
+    "recent_activities": [...]
+  },
+  "version": 5,
+  "updated_at": 1707654321000
+}
+```
+
+### 6. 上传同步数据
+
+```bash
+POST /user/sync
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "project": "25ji",
+  "version": 5,
+  "data": {
+    "pomodoro_count": 15,
+    "streak_days": 5,
+    "total_time": 54000,
+    "unlocked_achievements": ["first_pomodoro", "pomodoro_10", "streak_3"]
+  }
+}
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "user_id": "user_xxx",
+  "project": "25ji",
+  "data": {
+    "pomodoro_count": 15,
+    "streak_days": 5,
+    "total_time": 54000,
+    "unlocked_achievements": ["first_pomodoro", "pomodoro_10", "streak_3"]
+  },
+  "version": 6,
+  "updated_at": 1707664321000
+}
+```
+
+**数据合并策略：**
+- 数值类型（pomodoro_count, total_time 等）：取最大值
+- 时间戳类型（last_login_date 等）：取最新值
+- 数组类型（unlocked_achievements）：合并去重
+- 活动记录：合并并按时间排序，保留最近 50 条
+
 ## 如何获取 Access Token
 
 ### 方法 1: 通过 SEKAI Hub 登录
@@ -172,6 +253,26 @@ curl "$API_BASE/user/achievements" \
 echo -e "\n\n查询活动时间线..."
 curl "$API_BASE/user/activity?limit=5" \
   -H "Authorization: Bearer $TOKEN" | jq .
+
+# 5. 获取云端同步数据
+echo -e "\n\n获取云端同步数据..."
+curl "$API_BASE/user/sync?project=25ji" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+# 6. 上传同步数据
+echo -e "\n\n上传同步数据..."
+curl -X POST "$API_BASE/user/sync" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project": "25ji",
+    "version": 0,
+    "data": {
+      "pomodoro_count": 10,
+      "streak_days": 3,
+      "total_time": 36000
+    }
+  }' | jq .
 ```
 
 ## 数据库查询（调试用）
@@ -188,6 +289,9 @@ npx wrangler d1 execute pjsekai_db --remote --command "SELECT * FROM achievement
 
 # 查看用户成就
 npx wrangler d1 execute pjsekai_db --remote --command "SELECT * FROM user_achievements LIMIT 10;"
+
+# 查看同步数据
+npx wrangler d1 execute pjsekai_db --remote --command "SELECT user_id, project, version, updated_at FROM user_sync_data LIMIT 10;"
 ```
 
 ## 验证清单
@@ -198,10 +302,13 @@ npx wrangler d1 execute pjsekai_db --remote --command "SELECT * FROM user_achiev
 - [ ] 统计数据正确聚合
 - [ ] 成就系统正常工作
 - [ ] 活动时间线正确记录
+- [ ] 云端同步数据上传成功
+- [ ] 云端同步数据下载成功
+- [ ] 数据合并逻辑正确（取最大值/最新值）
 
 ## 下一步
 
 Phase 3: 集成到前端项目
+- 25ji 集成云端同步功能
 - nightcord 集成数据上报
-- 25ji 集成数据上报
 - Hub 显示真实数据

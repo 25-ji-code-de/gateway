@@ -58,3 +58,20 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 
 CREATE INDEX idx_user_achievements_user_id ON user_achievements(user_id);
 CREATE INDEX idx_user_achievements_unlocked_at ON user_achievements(unlocked_at);
+
+-- User sync data table
+-- 存储用户的完整同步数据（用于多设备同步）
+CREATE TABLE IF NOT EXISTS user_sync_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    project TEXT NOT NULL,
+    sync_data TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    updated_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(user_id, project)
+);
+
+CREATE INDEX idx_user_sync_data_user_id ON user_sync_data(user_id);
+CREATE INDEX idx_user_sync_data_project ON user_sync_data(project);
+CREATE INDEX idx_user_sync_data_updated_at ON user_sync_data(updated_at);

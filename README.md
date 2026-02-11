@@ -50,6 +50,43 @@ SEKAI 生态统一 API 网关 - 基于 Cloudflare Workers 的高性能 API 服�
 - 流式处理（避免内存峰值）
 - 永久缓存（max-age=31536000）
 
+### 3. 用户数据同步 API
+
+**端点:**
+- `GET /user/sync?project=25ji` - 获取云端同步数据
+- `POST /user/sync` - 上传本地数据到云端
+
+用于多设备间同步用户数据（番茄钟、成就、学习时长等）。
+
+**特性：**
+- 智能数据合并（数值取最大值，时间戳取最新值）
+- 版本控制（防止数据冲突）
+- 自动去重（成就、活动记录）
+- 需要 SEKAI Pass 认证
+
+**请求示例：**
+
+```bash
+# 获取云端数据
+curl -X GET "https://api.nightcord.de5.net/user/sync?project=25ji" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# 上传数据
+curl -X POST "https://api.nightcord.de5.net/user/sync" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project": "25ji",
+    "version": 0,
+    "data": {
+      "pomodoro_count": 10,
+      "streak_days": 3,
+      "total_time": 36000,
+      "unlocked_achievements": ["first_pomodoro"]
+    }
+  }'
+```
+
 ## 🚀 快速开始
 
 ### 前置要求
