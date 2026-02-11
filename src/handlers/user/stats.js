@@ -1,6 +1,7 @@
 // 用户统计 API
 
 import { jsonResponse, errorResponse } from '../../utils/response.js';
+import { checkAndUnlockAchievements, checkTimeBasedAchievements } from './achievement-checker.js';
 
 /**
  * 获取用户统计数据
@@ -73,7 +74,7 @@ export async function reportUserEvent(request, env, user) {
 
     const now = Date.now();
 
-    // 插入活动记录
+    // 1. 插入活动记录
     await env.DB.prepare(`
       INSERT INTO user_activities (user_id, project, event_type, metadata, created_at)
       VALUES (?, ?, ?, ?, ?)
@@ -85,12 +86,34 @@ export async function reportUserEvent(request, env, user) {
       now
     ).run();
 
-    // 更新统计数据（根据事件类型）
+    // 2. 更新统计数据（根据事件类型）
     await updateStats(env, user.id, project, event_type, metadata);
+
+    // 3. 获取当前统计数据
+    const currentStats = await getCurrentStats(env, user.id, project);
+
+    // 4. 检查并解锁成就
+    const unlockedAchievements = await checkAndUnlockAchievements(
+      user.id,
+      project,
+      currentStats,
+      env
+    );
+
+    // 5. 检查时间段成就
+    const timeBasedAchievements = await checkTimeBasedAchievements(
+      user.id,
+      project,
+      env
+    );
+
+    // 合并所有解锁的成就
+    const allUnlocked = [...unlockedAchievements, ...timeBasedAchievements];
 
     return jsonResponse({
       success: true,
-      message: 'Event reported successfully'
+      message: 'Event reported successfully',
+      unlocked_achievements: allUnlocked
     });
   } catch (error) {
     console.error('Report event error:', error);
@@ -119,6 +142,13 @@ async function updateStats(env, userId, project, eventType, metadata) {
       updates.push({ metric: 'pomodoros_completed', increment: 1 });
       updates.push({ metric: 'study_minutes', increment: 25 });
       break;
+    case 'study_time':
+      // 25ji 上报的学习时长（秒）
+      const minutes = Math.floor((metadata?.seconds || 0) / 60);
+      if (minutes > 0) {
+        updates.push({ metric: 'study_minutes', increment: minutes });
+      }
+      break;
     case 'song_played':
       updates.push({ metric: 'songs_played', increment: 1 });
       break;
@@ -141,6 +171,26 @@ async function updateStats(env, userId, project, eventType, metadata) {
       increment, now
     ).run();
   }
+}
+
+/**
+ * 获取用户当前统计数据（用于成就检查）
+ */
+async function getCurrentStats(env, userId, project) {
+  const today = new Date().toISOString().split('T')[0];
+
+  const result = await env.DB.prepare(`
+    SELECT metric_name, metric_value
+    FROM user_stats
+    WHERE user_id = ? AND project = ? AND date = ?
+  `).bind(userId, project, today).all();
+
+  const stats = {};
+  for (const row of result.results) {
+    stats[row.metric_name] = parseInt(row.metric_value || 0);
+  }
+
+  return stats;
 }
 
 /**
