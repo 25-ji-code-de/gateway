@@ -29,13 +29,10 @@ export default {
       } else if (path.startsWith('/assets/')) {
         response = await handleAssets(request, env, ctx);
       } else if (path.startsWith('/user/')) {
-        // TODO: 添加认证中间件
-        response = await handleUser(request, env, ctx, null);
+        response = await handleUser(request, env, ctx);
       } else if (path.startsWith('/chat/')) {
-        // TODO: 添加认证中间件
         response = await handleChat(request, env, ctx, null);
       } else if (path.startsWith('/study/')) {
-        // TODO: 添加认证中间件
         response = await handleStudy(request, env, ctx, null);
       } else {
         response = errorResponse('Not Found', 404);
