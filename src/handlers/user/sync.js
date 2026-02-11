@@ -121,10 +121,20 @@ export async function uploadSyncData(request, env, user) {
 
 /**
  * 合并用户数据
- * 策略：数值类型取最大值，时间戳类型取最新值，数组类型合并去重
+ * 策略：
+ * 1. userStats（成就数据）：数值取最大值，数组合并去重
+ * 2. preferences（偏好设置）：云端优先，本地有标记才上传
+ * 3. cdPlayer（CD播放器）：云端优先，本地有标记才上传
  */
 function mergeUserData(cloudData, localData) {
-  const merged = { ...cloudData };
+  const merged = {};
+
+  // ========== 1. 用户统计数据（userStats）==========
+  // 总是合并，数值取最大值
+  const cloudStats = cloudData.userStats || cloudData;  // 兼容旧格式
+  const localStats = localData.userStats || localData;
+
+  merged.userStats = {};
 
   // 数值类型：取最大值
   const numericFields = [
@@ -136,12 +146,10 @@ function mergeUserData(cloudData, localData) {
   ];
 
   for (const field of numericFields) {
-    if (localData[field] !== undefined) {
-      merged[field] = Math.max(
-        cloudData[field] || 0,
-        localData[field] || 0
-      );
-    }
+    merged.userStats[field] = Math.max(
+      cloudStats[field] || 0,
+      localStats[field] || 0
+    );
   }
 
   // 时间戳类型：取最新值
@@ -151,39 +159,62 @@ function mergeUserData(cloudData, localData) {
   ];
 
   for (const field of timestampFields) {
-    if (localData[field] !== undefined) {
-      const cloudTime = cloudData[field] || 0;
-      const localTime = localData[field] || 0;
-      merged[field] = localTime > cloudTime ? localData[field] : cloudData[field];
-    }
+    const cloudTime = cloudStats[field] || 0;
+    const localTime = localStats[field] || 0;
+    merged.userStats[field] = localTime > cloudTime ? localStats[field] : cloudStats[field];
   }
 
   // 数组类型：合并去重
-  if (localData.unlocked_achievements) {
-    const cloudAchievements = cloudData.unlocked_achievements || [];
-    const localAchievements = localData.unlocked_achievements || [];
-    merged.unlocked_achievements = [...new Set([...cloudAchievements, ...localAchievements])];
-  }
+  const cloudAchievements = cloudStats.unlocked_achievements || [];
+  const localAchievements = localStats.unlocked_achievements || [];
+  merged.userStats.unlocked_achievements = [...new Set([...cloudAchievements, ...localAchievements])];
 
   // 活动记录：合并并按时间戳排序，保留最近 50 条
-  if (localData.recent_activities) {
-    const cloudActivities = cloudData.recent_activities || [];
-    const localActivities = localData.recent_activities || [];
-    const allActivities = [...cloudActivities, ...localActivities];
+  const cloudActivities = cloudStats.recent_activities || [];
+  const localActivities = localStats.recent_activities || [];
+  const allActivities = [...cloudActivities, ...localActivities];
 
-    // 按时间戳去重（保留最新的）
-    const activityMap = new Map();
-    for (const activity of allActivities) {
-      const key = `${activity.type}_${activity.timestamp}`;
-      if (!activityMap.has(key) || activityMap.get(key).timestamp < activity.timestamp) {
-        activityMap.set(key, activity);
-      }
+  const activityMap = new Map();
+  for (const activity of allActivities) {
+    const key = `${activity.type}_${activity.timestamp}`;
+    if (!activityMap.has(key) || activityMap.get(key).timestamp < activity.timestamp) {
+      activityMap.set(key, activity);
     }
+  }
 
-    // 排序并限制数量
-    merged.recent_activities = Array.from(activityMap.values())
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 50);
+  merged.userStats.recent_activities = Array.from(activityMap.values())
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 50);
+
+  // ========== 2. 偏好设置（preferences）==========
+  // 云端优先，本地有 preferences_modified 标记才考虑本地数据
+  if (cloudData.preferences) {
+    // 云端有设置，直接使用云端的
+    merged.preferences = cloudData.preferences;
+  } else if (localData.preferences && localData.preferences_modified) {
+    // 云端没有，本地有修改标记，使用本地的
+    merged.preferences = localData.preferences;
+  }
+  // 否则不包含 preferences（客户端使用默认值）
+
+  // 保留标记
+  if (cloudData.preferences_modified || localData.preferences_modified) {
+    merged.preferences_modified = true;
+  }
+
+  // ========== 3. CD 播放器设置（cdPlayer）==========
+  // 云端优先，本地有 cdPlayer_used 标记才考虑本地数据
+  if (cloudData.cdPlayer) {
+    // 云端有设置，直接使用云端的
+    merged.cdPlayer = cloudData.cdPlayer;
+  } else if (localData.cdPlayer && localData.cdPlayer_used) {
+    // 云端没有，本地有使用标记，使用本地的
+    merged.cdPlayer = localData.cdPlayer;
+  }
+
+  // 保留标记
+  if (cloudData.cdPlayer_used || localData.cdPlayer_used) {
+    merged.cdPlayer_used = true;
   }
 
   return merged;
