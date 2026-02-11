@@ -7,7 +7,7 @@ import { getUserAchievements } from './achievements.js';
 
 export async function handleUser(request, env, ctx) {
   // 认证检查
-  const user = await authenticate(request);
+  const user = await authenticate(request, env);
   if (!user) {
     return errorResponse('Unauthorized', 401);
   }

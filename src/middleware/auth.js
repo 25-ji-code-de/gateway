@@ -1,6 +1,10 @@
 // 认证中间件 - 验证 SEKAI Pass 的 access token
 
-export async function authenticate(request) {
+/**
+ * 验证 access token
+ * 直接查询 SEKAI Pass 数据库，避免额外的网络请求
+ */
+export async function authenticate(request, env) {
   const authHeader = request.headers.get('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -10,22 +14,31 @@ export async function authenticate(request) {
   const token = authHeader.substring(7);
 
   try {
-    // 调用 SEKAI Pass 的 userinfo 端点验证 token
-    const response = await fetch('https://id.nightcord.de5.net/oauth/userinfo', {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
+    // 查询 SEKAI Pass 数据库验证 token
+    const result = await env.AUTH_DB.prepare(`
+      SELECT
+        at.user_id,
+        at.expires_at,
+        u.username,
+        u.email
+      FROM access_tokens at
+      JOIN users u ON at.user_id = u.id
+      WHERE at.token = ?
+    `).bind(token).first();
 
-    if (!response.ok) {
+    if (!result) {
       return null;
     }
 
-    const userInfo = await response.json();
+    // 检查 token 是否过期
+    if (result.expires_at < Date.now()) {
+      return null;
+    }
+
     return {
-      id: userInfo.sub,
-      username: userInfo.username,
-      email: userInfo.email
+      id: result.user_id,
+      username: result.username,
+      email: result.email
     };
   } catch (error) {
     console.error('Authentication error:', error);
