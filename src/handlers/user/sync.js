@@ -187,29 +187,50 @@ function mergeUserData(cloudData, localData) {
     .slice(0, 50);
 
   // ========== 2. 偏好设置（preferences）==========
-  // 云端优先，本地有 preferences_modified 标记才考虑本地数据
-  if (cloudData.preferences) {
-    // 云端有设置，直接使用云端的
-    merged.preferences = cloudData.preferences;
-  } else if (localData.preferences && localData.preferences_modified) {
-    // 云端没有，本地有修改标记，使用本地的
-    merged.preferences = localData.preferences;
-  }
-  // 否则不包含 preferences（客户端使用默认值）
+  // 智能合并：数组合并去重，单值本地优先
+  if (cloudData.preferences || (localData.preferences && localData.preferences_modified)) {
+    const cloudPrefs = cloudData.preferences || {};
+    const localPrefs = localData.preferences || {};
 
-  // 保留标记
-  if (cloudData.preferences_modified || localData.preferences_modified) {
+    merged.preferences = {
+      // 单值字段：本地优先（最后修改的设备优先）
+      language: localPrefs.language || cloudPrefs.language,
+      visualizationEnabled: localPrefs.visualizationEnabled !== undefined ? localPrefs.visualizationEnabled : cloudPrefs.visualizationEnabled,
+      clockWidgetVisible: localPrefs.clockWidgetVisible !== undefined ? localPrefs.clockWidgetVisible : cloudPrefs.clockWidgetVisible,
+      userNickname: localPrefs.userNickname || cloudPrefs.userNickname,
+
+      // 数组字段：合并去重
+      worldClockTimeZones: mergeTimeZones(cloudPrefs.worldClockTimeZones, localPrefs.worldClockTimeZones),
+
+      // 对象字段：本地优先
+      healthReminderConfig: localPrefs.healthReminderConfig || cloudPrefs.healthReminderConfig
+    };
+
     merged.preferences_modified = true;
   }
 
   // ========== 3. CD 播放器设置（cdPlayer）==========
-  // 云端优先，本地有 cdPlayer_used 标记才考虑本地数据
-  if (cloudData.cdPlayer) {
-    // 云端有设置，直接使用云端的
-    merged.cdPlayer = cloudData.cdPlayer;
-  } else if (localData.cdPlayer && localData.cdPlayer_used) {
-    // 云端没有，本地有使用标记，使用本地的
-    merged.cdPlayer = localData.cdPlayer;
+  // 智能合并：favorites/playlists 合并去重，其他字段云端优先
+  if (cloudData.cdPlayer || (localData.cdPlayer && localData.cdPlayer_used)) {
+    const cloudCD = cloudData.cdPlayer || {};
+    const localCD = localData.cdPlayer || {};
+
+    merged.cdPlayer = {
+      // 单值字段：云端优先（保留最后使用的设备的设置）
+      volume: cloudCD.volume !== undefined ? cloudCD.volume : localCD.volume,
+      lastTrackId: cloudCD.lastTrackId || localCD.lastTrackId,
+      lastVocalId: cloudCD.lastVocalId || localCD.lastVocalId,
+      vocalPreference: cloudCD.vocalPreference || localCD.vocalPreference,
+      repeat: cloudCD.repeat !== undefined ? cloudCD.repeat : localCD.repeat,
+      shuffle: cloudCD.shuffle !== undefined ? cloudCD.shuffle : localCD.shuffle,
+
+      // 数组字段：合并去重
+      favorites: [...new Set([...(cloudCD.favorites || []), ...(localCD.favorites || [])])],
+      preferredCharacters: [...new Set([...(cloudCD.preferredCharacters || []), ...(localCD.preferredCharacters || [])])],
+
+      // 播放列表：合并去重（按 id 去重）
+      playlists: mergePlaylistsById(cloudCD.playlists || [], localCD.playlists || [])
+    };
   }
 
   // 保留标记
@@ -218,4 +239,53 @@ function mergeUserData(cloudData, localData) {
   }
 
   return merged;
+}
+
+/**
+ * 合并时区列表（去重）
+ */
+function mergeTimeZones(cloudZones, localZones) {
+  if (!cloudZones && !localZones) return null;
+  if (!cloudZones) return localZones;
+  if (!localZones) return cloudZones;
+
+  // 按 timezone 字段去重
+  const zoneMap = new Map();
+
+  for (const zone of cloudZones) {
+    if (zone && zone.timezone) {
+      zoneMap.set(zone.timezone, zone);
+    }
+  }
+
+  for (const zone of localZones) {
+    if (zone && zone.timezone) {
+      zoneMap.set(zone.timezone, zone);
+    }
+  }
+
+  return Array.from(zoneMap.values());
+}
+
+/**
+ * 合并播放列表（按 id 去重，保留最新的）
+ */
+function mergePlaylistsById(cloudPlaylists, localPlaylists) {
+  const playlistMap = new Map();
+
+  // 先添加云端的
+  for (const playlist of cloudPlaylists) {
+    if (playlist.id) {
+      playlistMap.set(playlist.id, playlist);
+    }
+  }
+
+  // 再添加本地的（如果 id 相同，本地覆盖云端）
+  for (const playlist of localPlaylists) {
+    if (playlist.id) {
+      playlistMap.set(playlist.id, playlist);
+    }
+  }
+
+  return Array.from(playlistMap.values());
 }
