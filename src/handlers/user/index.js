@@ -5,6 +5,7 @@ import { authenticate } from '../../middleware/auth.js';
 import { getUserStats, reportUserEvent, getUserActivity } from './stats.js';
 import { getUserAchievements } from './achievements.js';
 import { getSyncData, uploadSyncData } from './sync.js';
+import { getUserProfile, updateUserProfile } from './profile.js';
 
 export async function handleUser(request, env, ctx) {
   // 认证检查
@@ -17,6 +18,14 @@ export async function handleUser(request, env, ctx) {
   const path = url.pathname;
 
   // 路由分发
+  if (path === '/user/profile' && request.method === 'GET') {
+    return getUserProfile(request, env, user);
+  }
+
+  if (path === '/user/profile' && request.method === 'PUT') {
+    return updateUserProfile(request, env, user);
+  }
+
   if (path === '/user/stats' && request.method === 'GET') {
     return getUserStats(request, env, user);
   }

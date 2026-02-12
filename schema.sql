@@ -16,6 +16,19 @@ CREATE INDEX idx_user_stats_user_id ON user_stats(user_id);
 CREATE INDEX idx_user_stats_project ON user_stats(project);
 CREATE INDEX idx_user_stats_date ON user_stats(date);
 
+-- User profiles table
+-- 存储用户的个人资料信息
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id TEXT PRIMARY KEY,
+    display_name TEXT,
+    avatar_url TEXT,
+    bio TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_user_profiles_updated_at ON user_profiles(updated_at);
+
 -- User activities table
 -- 存储用户的活动时间线
 CREATE TABLE IF NOT EXISTS user_activities (
