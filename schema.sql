@@ -17,11 +17,10 @@ CREATE INDEX idx_user_stats_project ON user_stats(project);
 CREATE INDEX idx_user_stats_date ON user_stats(date);
 
 -- User profiles table
--- 存储用户的个人资料信息
+-- 存储用户的扩展资料（bio 等）
+-- 基本资料（display_name, avatar_url）由 SEKAI Pass 管理
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY,
-    display_name TEXT,
-    avatar_url TEXT,
     bio TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
