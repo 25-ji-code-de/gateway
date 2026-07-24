@@ -59,7 +59,18 @@ export async function checkAndUnlockAchievements(userId, project, currentStats, 
         continue;
       }
 
-      const requirement = JSON.parse(achievement.requirement);
+      const requirement = (() => {
+        try {
+          return typeof achievement.requirement === 'string'
+            ? JSON.parse(achievement.requirement)
+            : achievement.requirement;
+        } catch {
+          console.warn('Invalid achievement requirement', achievement.id);
+          return null;
+        }
+      })();
+      if (!requirement) continue;
+
       let shouldUnlock = false;
 
       // 根据成就类型检查
@@ -101,7 +112,21 @@ export async function checkAndUnlockAchievements(userId, project, currentStats, 
  */
 async function checkStatAchievement(requirement, currentStats) {
   const { metric, value } = requirement;
-  const currentValue = parseInt(currentStats[metric] || 0);
+  // Accept common aliases so achievements keep working across naming drift
+  const aliases = {
+    pomodoro_completed: ['pomodoros_completed', 'pomodoro_count'],
+    pomodoros_completed: ['pomodoro_completed', 'pomodoro_count'],
+    nako_conversation: ['nako_conversations'],
+    nako_conversations: ['nako_conversation'],
+  };
+  let currentValue = parseInt(currentStats[metric] || 0, 10);
+  if (!Number.isFinite(currentValue)) currentValue = 0;
+  if (currentValue < value && aliases[metric]) {
+    for (const alt of aliases[metric]) {
+      const n = parseInt(currentStats[alt] || 0, 10);
+      if (Number.isFinite(n) && n > currentValue) currentValue = n;
+    }
+  }
   return currentValue >= value;
 }
 

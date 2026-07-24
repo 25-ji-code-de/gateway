@@ -17,27 +17,33 @@
 // 贴纸自动补全数据代理
 // 从 sticker.nightcord.de5.net 代理 autocomplete.json
 
-import { DATA_SOURCES } from '../../config/constants.js';
+import { DATA_SOURCES, fetchWithTimeout } from '../../config/constants.js';
 import { jsonResponse, errorResponse } from '../../utils/response.js';
+import { createCacheKey, getCachedResponse } from '../../utils/cache.js';
 import { logCacheEvent, logError } from '../../utils/analytics.js';
 
 const CACHE_TTL = 3600; // 1 小时（贴纸数据变化不频繁）
 
 export async function handleStickersAutocomplete(request, env, ctx) {
-  const cacheKey = new Request(request.url, request);
+  const url = new URL(request.url);
+  const cacheKey = createCacheKey(url, '/sekai/stickers/autocomplete.json');
   const cache = caches.default;
+  const isHead = request.method === 'HEAD';
 
   try {
-    // 尝试从边缘缓存获取
-    let response = await cache.match(cacheKey);
-    if (response) {
+    // 尝试从边缘缓存获取（稳定 key，忽略 query）
+    const cached = await getCachedResponse(cache, cacheKey);
+    if (cached) {
       logCacheEvent('stickers_autocomplete', true, 'edge');
-      return response;
+      if (isHead) {
+        return new Response(null, { status: cached.status, headers: cached.headers });
+      }
+      return cached;
     }
 
     // 从源站获取
     logCacheEvent('stickers_autocomplete', false, 'origin');
-    const upstreamResponse = await fetch(DATA_SOURCES.stickersAutocomplete);
+    const upstreamResponse = await fetchWithTimeout(DATA_SOURCES.stickersAutocomplete);
 
     if (!upstreamResponse.ok) {
       logError('stickers_autocomplete', new Error('Upstream fetch failed'), {
@@ -46,23 +52,26 @@ export async function handleStickersAutocomplete(request, env, ctx) {
       });
       return errorResponse(
         'Failed to fetch stickers autocomplete data',
-        upstreamResponse.status
+        upstreamResponse.status >= 500 ? 502 : upstreamResponse.status,
       );
     }
 
     const data = await upstreamResponse.json();
 
     // 构造响应
-    response = jsonResponse(data, 200, {
+    const response = jsonResponse(data, 200, {
       'Cache-Control': `public, max-age=${CACHE_TTL}`,
     });
 
     // 写入边缘缓存
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
 
+    if (isHead) {
+      return new Response(null, { status: response.status, headers: response.headers });
+    }
     return response;
   } catch (error) {
     logError('stickers_autocomplete', error);
-    return errorResponse('Internal Server Error', 500, error.message);
+    return errorResponse('Internal Server Error', 500);
   }
 }

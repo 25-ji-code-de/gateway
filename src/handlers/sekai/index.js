@@ -24,11 +24,18 @@ export async function handleSekai(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
 
+  // Public read endpoints — only GET/HEAD
   if (path === '/sekai/music_data.json') {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return errorResponse('Method Not Allowed', 405);
+    }
     return await handleMusicData(request, env, ctx);
   }
 
   if (path === '/sekai/stickers/autocomplete.json') {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return errorResponse('Method Not Allowed', 405);
+    }
     return await handleStickersAutocomplete(request, env, ctx);
   }
 

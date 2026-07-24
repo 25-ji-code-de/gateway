@@ -19,6 +19,17 @@
 import { ORIGIN } from '../../config/constants.js';
 import { jsonResponse, errorResponse } from '../../utils/response.js';
 
+/** Block path traversal and absolute/scheme URLs in the path param. */
+function isSafeAssetPath(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  if (filePath.length > 1024) return false;
+  // Must be a relative path under the origin assets tree
+  if (filePath.includes('..') || filePath.includes('\\')) return false;
+  if (/^https?:\/\//i.test(filePath)) return false;
+  if (/[\x00-\x1f]/.test(filePath)) return false;
+  return true;
+}
+
 export async function handlePrefetch(request, env, ctx) {
   const url = new URL(request.url);
   const filePath = url.searchParams.get('path');
@@ -27,7 +38,19 @@ export async function handlePrefetch(request, env, ctx) {
     return errorResponse('Missing path parameter', 400);
   }
 
+  if (!isSafeAssetPath(filePath)) {
+    return errorResponse('Invalid path parameter', 400);
+  }
+
+  if (!env?.BUCKET) {
+    return errorResponse('Storage not configured', 503);
+  }
+
+  // Normalize: always store without leading slash
   const r2Key = filePath.replace(/^\//, '');
+  if (!r2Key) {
+    return errorResponse('Invalid path parameter', 400);
+  }
 
   // 检查 R2 是否已存在
   const existing = await env.BUCKET.head(r2Key);
@@ -41,8 +64,9 @@ export async function handlePrefetch(request, env, ctx) {
     });
   }
 
-  // 从源站获取
-  const originUrl = `${ORIGIN.sekai}${filePath}`;
+  // 从源站获取（path 已校验，仍强制拼到固定 origin）
+  const originBase = ORIGIN.sekai.replace(/\/$/, '');
+  const originUrl = `${originBase}/${r2Key}`;
   const originResp = await fetch(originUrl);
 
   if (!originResp.ok) {

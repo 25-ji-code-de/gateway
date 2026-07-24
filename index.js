@@ -22,7 +22,7 @@ import { handleAssets } from './src/handlers/assets/index.js';
 import { handleUser } from './src/handlers/user/index.js';
 import { handleChat } from './src/handlers/chat/index.js';
 import { handleStudy } from './src/handlers/study/index.js';
-import { errorResponse } from './src/utils/response.js';
+import { errorResponse, jsonResponse } from './src/utils/response.js';
 import { logMetrics, logError } from './src/utils/analytics.js';
 
 export default {
@@ -39,8 +39,25 @@ export default {
     try {
       let response;
 
-      // 路由分发
-      if (path.startsWith('/sekai/')) {
+      // 健康检查 / 服务索引
+      if (path === '/' || path === '/health') {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          response = errorResponse('Method Not Allowed', 405);
+        } else {
+          response = jsonResponse({
+            service: 'gateway',
+            status: 'ok',
+            version: '1.0.0',
+            routes: ['/sekai/*', '/assets/*', '/user/*', '/chat/*', '/study/*'],
+          });
+          if (request.method === 'HEAD') {
+            response = new Response(null, {
+              status: response.status,
+              headers: response.headers,
+            });
+          }
+        }
+      } else if (path.startsWith('/sekai/')) {
         response = await handleSekai(request, env, ctx);
       } else if (path.startsWith('/assets/')) {
         response = await handleAssets(request, env, ctx);
@@ -54,21 +71,23 @@ export default {
         response = errorResponse('Not Found', 404);
       }
 
-      // 记录请求指标
+      // 记录请求指标（logMetrics 为同步；waitUntil 接受 Promise）
       const duration = Date.now() - startTime;
       ctx.waitUntil(
-        Promise.resolve(logMetrics(ctx, request, response, duration))
+        Promise.resolve().then(() => logMetrics(ctx, request, response, duration)),
       );
 
       return addCORSHeaders(response);
     } catch (error) {
-      // 记录错误
       logError('fetch', error, { path, method: request.method });
 
-      const response = errorResponse('Internal Server Error', 500, error.message);
+      // 不把内部 error.message 暴露给客户端
+      const response = errorResponse('Internal Server Error', 500);
       const duration = Date.now() - startTime;
       ctx.waitUntil(
-        Promise.resolve(logMetrics(ctx, request, response, duration, { error: true }))
+        Promise.resolve().then(() =>
+          logMetrics(ctx, request, response, duration, { error: true }),
+        ),
       );
 
       return addCORSHeaders(response);

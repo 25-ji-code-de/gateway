@@ -24,6 +24,9 @@ export async function handleAssets(request, env, ctx) {
   const path = url.pathname;
 
   if (path === '/assets/prefetch') {
+    if (request.method !== 'GET' && request.method !== 'POST') {
+      return errorResponse('Method Not Allowed', 405);
+    }
     return await handlePrefetch(request, env, ctx);
   }
 

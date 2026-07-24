@@ -22,6 +22,12 @@ export const CONFIG = {
   R2_TTL: 180,            // R2 新鲜期 3 分钟
   STALE_TTL: 600,         // 允许使用 10 分钟内的过期数据
   R2_KEY: 'cache/music_data_v3.json',
+
+  // 上游 fetch 超时（毫秒）— 避免慢源站拖死 Worker
+  UPSTREAM_TIMEOUT_MS: 12_000,
+
+  // 用户同步 JSON 体大小上限（字节）
+  SYNC_BODY_MAX_BYTES: 512 * 1024,
 };
 
 export const DATA_SOURCES = {
@@ -34,3 +40,19 @@ export const DATA_SOURCES = {
 export const ORIGIN = {
   sekai: 'https://storage.sekai.best/sekai-jp-assets',
 };
+
+/**
+ * fetch with AbortSignal timeout. Re-throws on abort / network error.
+ * @param {string|URL} input
+ * @param {RequestInit & { timeoutMs?: number }} [init]
+ */
+export async function fetchWithTimeout(input, init = {}) {
+  const { timeoutMs = CONFIG.UPSTREAM_TIMEOUT_MS, ...rest } = init;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...rest, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -16,9 +16,13 @@
 
 // 认证中间件 - 验证 SEKAI Pass 的 access token
 
+/** Reject absurdly long Authorization values early (DoS / accidental paste). */
+const MAX_TOKEN_LEN = 512;
+
 /**
  * 验证 access token
  * 直接查询 SEKAI Pass 数据库，避免额外的网络请求
+ * @returns {Promise<{id: string, username: string, email: string}|null>}
  */
 export async function authenticate(request, env) {
   const authHeader = request.headers.get('Authorization');
@@ -27,7 +31,15 @@ export async function authenticate(request, env) {
     return null;
   }
 
-  const token = authHeader.substring(7);
+  const token = authHeader.slice(7).trim();
+  if (!token || token.length > MAX_TOKEN_LEN) {
+    return null;
+  }
+
+  if (!env?.AUTH_DB) {
+    console.error('Authentication error: AUTH_DB binding missing');
+    return null;
+  }
 
   try {
     // 查询 SEKAI Pass 数据库验证 token
@@ -46,15 +58,16 @@ export async function authenticate(request, env) {
       return null;
     }
 
-    // 检查 token 是否过期
-    if (result.expires_at < Date.now()) {
+    // 检查 token 是否过期（expires_at 为 epoch ms）
+    const expiresAt = Number(result.expires_at);
+    if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
       return null;
     }
 
     return {
       id: result.user_id,
       username: result.username,
-      email: result.email
+      email: result.email,
     };
   } catch (error) {
     console.error('Authentication error:', error);

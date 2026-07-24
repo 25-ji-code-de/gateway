@@ -20,7 +20,8 @@ export function jsonResponse(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
       ...headers,
     },
   });
@@ -32,8 +33,9 @@ export function errorResponse(message, status = 500, details = null) {
     message,
   };
 
-  if (details) {
-    body.details = details;
+  if (details != null) {
+    // Never leak Error stacks to clients; callers may pass strings/objects
+    body.details = details instanceof Error ? details.message : details;
   }
 
   return jsonResponse(body, status, {

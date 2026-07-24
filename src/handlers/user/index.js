@@ -30,6 +30,10 @@ export async function handleUser(request, env, ctx) {
     return errorResponse('Unauthorized', 401);
   }
 
+  if (!env?.DB) {
+    return errorResponse('Database not configured', 503);
+  }
+
   const url = new URL(request.url);
   const path = url.pathname;
 

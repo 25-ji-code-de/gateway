@@ -14,10 +14,26 @@
  * limitations under the License.
  */
 
-// 学习相关 API（未来实现）
+// 学习相关 API（占位）
+// 学习数据通过 /user/sync?project=25ji 与 /user/events 上报；此处预留专用 REST。
 
-import { errorResponse } from '../../utils/response.js';
+import { errorResponse, jsonResponse } from '../../utils/response.js';
 
 export async function handleStudy(request, env, ctx, user) {
-  return errorResponse('Study API not implemented yet', 501);
+  if (request.method === 'GET') {
+    return jsonResponse({
+      service: 'study',
+      status: 'not_implemented',
+      message: 'Study REST API is reserved. Use /user/sync?project=25ji and /user/events.',
+      related: {
+        '25ji': 'https://25ji.nightcord.de5.net',
+        sync: '/user/sync?project=25ji',
+        events: '/user/events',
+      },
+    }, 501);
+  }
+  return errorResponse(
+    'Study API not implemented; use /user/sync?project=25ji and /user/events',
+    501,
+  );
 }

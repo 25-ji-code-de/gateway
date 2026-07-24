@@ -40,18 +40,28 @@ export async function getUserAchievements(request, env, user) {
       ORDER BY ua.unlocked_at DESC NULLS LAST, a.created_at
     `).bind(user.id).all();
 
-    const achievements = result.results.map(row => ({
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      icon: row.icon,
-      project: row.project,
-      type: row.type,
-      requirement: JSON.parse(row.requirement),
-      progress: row.progress || 0,
-      unlocked: row.unlocked_at !== null,
-      unlocked_at: row.unlocked_at
-    }));
+    const achievements = result.results.map((row) => {
+      let requirement = row.requirement;
+      if (typeof requirement === 'string') {
+        try {
+          requirement = JSON.parse(requirement);
+        } catch {
+          requirement = null;
+        }
+      }
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        icon: row.icon,
+        project: row.project,
+        type: row.type,
+        requirement,
+        progress: row.progress || 0,
+        unlocked: row.unlocked_at !== null,
+        unlocked_at: row.unlocked_at,
+      };
+    });
 
     return jsonResponse({
       user_id: user.id,

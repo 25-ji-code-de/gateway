@@ -37,7 +37,7 @@ export async function getUserProfile(request, env, user) {
         user_id: user.id,
         bio: null,
         created_at: null,
-        updated_at: null
+        updated_at: null,
       });
     }
 
@@ -45,7 +45,7 @@ export async function getUserProfile(request, env, user) {
       user_id: user.id,
       bio: result.bio,
       created_at: result.created_at,
-      updated_at: result.updated_at
+      updated_at: result.updated_at,
     });
   } catch (error) {
     console.error('Get user profile error:', error);
@@ -60,42 +60,40 @@ export async function getUserProfile(request, env, user) {
  */
 export async function updateUserProfile(request, env, user) {
   try {
-    const body = await request.json();
-    const { bio } = body;
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const { bio } = body ?? {};
 
     // 验证字段
-    if (bio !== undefined && bio !== null) {
-      if (typeof bio !== 'string' || bio.length > 500) {
-        return errorResponse('bio must be a string with max 500 characters', 400);
-      }
-    } else {
+    if (bio === undefined || bio === null) {
       return errorResponse('bio field is required', 400);
+    }
+    if (typeof bio !== 'string' || bio.length > 500) {
+      return errorResponse('bio must be a string with max 500 characters', 400);
     }
 
     const now = Date.now();
 
-    // 检查用户资料是否存在
-    const existing = await env.DB.prepare(`
-      SELECT user_id FROM user_profiles WHERE user_id = ?
-    `).bind(user.id).first();
+    // 单次 upsert，避免 SELECT + UPDATE/INSERT 竞态
+    await env.DB.prepare(`
+      INSERT INTO user_profiles (user_id, bio, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET
+        bio = excluded.bio,
+        updated_at = excluded.updated_at
+    `).bind(user.id, bio, now, now).run();
 
-    if (existing) {
-      // 更新现有资料
-      await env.DB.prepare(`
-        UPDATE user_profiles
-        SET bio = ?, updated_at = ?
-        WHERE user_id = ?
-      `).bind(bio, now, user.id).run();
-    } else {
-      // 创建新资料
-      await env.DB.prepare(`
-        INSERT INTO user_profiles (user_id, bio, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-      `).bind(user.id, bio, now, now).run();
-    }
-
-    // 返回更新后的资料
-    return getUserProfile(request, env, user);
+    return jsonResponse({
+      user_id: user.id,
+      bio,
+      created_at: now,
+      updated_at: now,
+    });
   } catch (error) {
     console.error('Update user profile error:', error);
     return errorResponse('Failed to update user profile', 500);

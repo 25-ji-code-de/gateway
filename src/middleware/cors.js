@@ -18,8 +18,10 @@
 
 export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  // PUT /user/profile; POST sync/events; GET/HEAD reads
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Max-Age': '86400',
 };
 
 export function handleCORS(request) {
@@ -33,10 +35,11 @@ export function handleCORS(request) {
 }
 
 export function addCORSHeaders(response) {
+  // Avoid re-wrapping when headers are already present (cheap path)
   const newHeaders = new Headers(response.headers);
-  Object.entries(CORS_HEADERS).forEach(([key, value]) => {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
     newHeaders.set(key, value);
-  });
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

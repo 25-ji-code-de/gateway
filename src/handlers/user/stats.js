@@ -28,6 +28,14 @@ export async function getUserStats(request, env, user) {
   const project = url.searchParams.get('project');
   const date = url.searchParams.get('date') || new Date().toISOString().split('T')[0];
 
+  if (project && !/^[a-zA-Z0-9_-]{1,64}$/.test(project)) {
+    return errorResponse('Invalid project', 400);
+  }
+  // Expect YYYY-MM-DD (UTC date strings from clients)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return errorResponse('Invalid date (use YYYY-MM-DD)', 400);
+  }
+
   try {
     let query;
     let params;
@@ -81,11 +89,22 @@ export async function getUserStats(request, env, user) {
  */
 export async function reportUserEvent(request, env, user) {
   try {
-    const body = await request.json();
-    const { project, event_type, metadata } = body;
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const { project, event_type, metadata } = body ?? {};
 
     if (!project || !event_type) {
       return errorResponse('Missing required fields: project, event_type', 400);
+    }
+    if (typeof project !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(project)) {
+      return errorResponse('Invalid project', 400);
+    }
+    if (typeof event_type !== 'string' || event_type.length > 64) {
+      return errorResponse('Invalid event_type', 400);
     }
 
     const now = Date.now();
@@ -155,22 +174,34 @@ async function updateStats(env, userId, project, eventType, metadata) {
       updates.push({ metric: 'online_minutes', increment: metadata?.minutes || 0 });
       break;
     case 'pomodoro_completed':
+      // Canonical metric name: pomodoros_completed (hub accepts both)
       updates.push({ metric: 'pomodoros_completed', increment: 1 });
       updates.push({ metric: 'study_minutes', increment: 25 });
       break;
-    case 'study_time':
+    case 'study_time': {
       // 25ji 上报的学习时长（秒）
       const minutes = Math.floor((metadata?.seconds || 0) / 60);
       if (minutes > 0) {
         updates.push({ metric: 'study_minutes', increment: minutes });
       }
       break;
+    }
     case 'song_played':
       updates.push({ metric: 'songs_played', increment: 1 });
       break;
     case 'nako_conversation':
       updates.push({ metric: 'nako_conversations', increment: 1 });
       break;
+    default: {
+      // Nako (and clients) may report "*_conversation" via gateway; count as *_conversations
+      if (typeof eventType === 'string' && /_conversation(s)?$/.test(eventType)) {
+        const metric = /_conversations$/.test(eventType)
+          ? eventType
+          : eventType.replace(/_conversation$/, '_conversations');
+        updates.push({ metric, increment: 1 });
+      }
+      break;
+    }
   }
 
   // 批量更新统计
@@ -215,8 +246,11 @@ async function getCurrentStats(env, userId, project) {
  */
 export async function getUserActivity(request, env, user) {
   const url = new URL(request.url);
-  const limit = parseInt(url.searchParams.get('limit') || '20');
-  const offset = parseInt(url.searchParams.get('offset') || '0');
+  let limit = parseInt(url.searchParams.get('limit') || '20', 10);
+  let offset = parseInt(url.searchParams.get('offset') || '0', 10);
+  if (!Number.isFinite(limit) || limit < 1) limit = 20;
+  if (limit > 100) limit = 100;
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
 
   try {
     const result = await env.DB.prepare(`
@@ -227,21 +261,32 @@ export async function getUserActivity(request, env, user) {
       LIMIT ? OFFSET ?
     `).bind(user.id, limit, offset).all();
 
-    const activities = result.results.map(row => ({
-      project: row.project,
-      event_type: row.event_type,
-      metadata: row.metadata ? JSON.parse(row.metadata) : null,
-      created_at: row.created_at
-    }));
+    const activities = (result.results || []).map((row) => {
+      let metadata = null;
+      if (row.metadata) {
+        try {
+          metadata = JSON.parse(row.metadata);
+        } catch {
+          metadata = null;
+        }
+      }
+      return {
+        project: row.project,
+        event_type: row.event_type,
+        metadata,
+        created_at: row.created_at,
+      };
+    });
 
     return jsonResponse({
       user_id: user.id,
-      activities: activities,
-      limit: limit,
-      offset: offset
+      activities,
+      limit,
+      offset,
     });
   } catch (error) {
     console.error('Get user activity error:', error);
     return errorResponse('Failed to get user activity', 500);
   }
 }
+

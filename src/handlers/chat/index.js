@@ -14,10 +14,25 @@
  * limitations under the License.
  */
 
-// 聊天相关 API（未来实现）
+// 聊天相关 API（占位）
+// 实时聊天走 Nightcord WebSocket 与 Nako 独立服务；此处预留聚合端点。
 
-import { errorResponse } from '../../utils/response.js';
+import { errorResponse, jsonResponse } from '../../utils/response.js';
 
 export async function handleChat(request, env, ctx, user) {
-  return errorResponse('Chat API not implemented yet', 501);
+  if (request.method === 'GET') {
+    return jsonResponse({
+      service: 'chat',
+      status: 'not_implemented',
+      message: 'Chat REST API is reserved. Use Nightcord WebSocket or Nako /api/chat.',
+      related: {
+        nightcord: 'https://nightcord.de5.net',
+        nako: 'https://nako.nightcord.de5.net',
+      },
+    }, 501);
+  }
+  return errorResponse(
+    'Chat API not implemented; use Nightcord WebSocket or Nako /api/chat',
+    501,
+  );
 }

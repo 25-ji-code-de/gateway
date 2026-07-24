@@ -16,7 +16,10 @@
 
 // 用户数据同步 API
 
+import { CONFIG } from '../../config/constants.js';
 import { jsonResponse, errorResponse } from '../../utils/response.js';
+
+const PROJECT_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /**
  * 获取云端同步数据
@@ -26,8 +29,8 @@ export async function getSyncData(request, env, user) {
   const url = new URL(request.url);
   const project = url.searchParams.get('project');
 
-  if (!project) {
-    return errorResponse('Missing required parameter: project', 400);
+  if (!project || !PROJECT_RE.test(project)) {
+    return errorResponse('Missing or invalid parameter: project', 400);
   }
 
   try {
@@ -41,19 +44,27 @@ export async function getSyncData(request, env, user) {
       // 用户首次同步，返回空数据
       return jsonResponse({
         user_id: user.id,
-        project: project,
+        project,
         data: null,
         version: 0,
-        updated_at: null
+        updated_at: null,
       });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(result.sync_data);
+    } catch {
+      console.error('Corrupt sync_data for user', user.id, project);
+      return errorResponse('Corrupt sync data stored; please re-upload', 500);
     }
 
     return jsonResponse({
       user_id: user.id,
-      project: project,
-      data: JSON.parse(result.sync_data),
+      project,
+      data,
       version: result.version,
-      updated_at: result.updated_at
+      updated_at: result.updated_at,
     });
   } catch (error) {
     console.error('Get sync data error:', error);
@@ -68,15 +79,32 @@ export async function getSyncData(request, env, user) {
  */
 export async function uploadSyncData(request, env, user) {
   try {
-    const body = await request.json();
-    const { project, data, version } = body;
+    const contentLength = Number(request.headers.get('Content-Length') || 0);
+    if (contentLength > CONFIG.SYNC_BODY_MAX_BYTES) {
+      return errorResponse('Request body too large', 413);
+    }
 
-    if (!project || !data) {
-      return errorResponse('Missing required fields: project, data', 400);
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const { project, data, version } = body ?? {};
+
+    if (!project || !PROJECT_RE.test(project) || data == null || typeof data !== 'object') {
+      return errorResponse('Missing or invalid fields: project, data', 400);
+    }
+
+    // Guard against oversized payloads even when Content-Length is missing
+    const serialized = JSON.stringify(data);
+    if (serialized.length > CONFIG.SYNC_BODY_MAX_BYTES) {
+      return errorResponse('Sync payload too large', 413);
     }
 
     const now = Date.now();
-    const clientVersion = version || 0;
+    const clientVersion = Number.isFinite(Number(version)) ? Number(version) : 0;
 
     // 获取当前云端版本
     const current = await env.DB.prepare(`
@@ -90,20 +118,28 @@ export async function uploadSyncData(request, env, user) {
 
     // 如果云端有数据，需要合并
     if (current) {
-      const cloudData = JSON.parse(current.sync_data);
+      let cloudData;
+      try {
+        cloudData = JSON.parse(current.sync_data);
+      } catch {
+        // 云端数据损坏时以客户端为准覆盖
+        console.error('Corrupt cloud sync_data; overwriting', user.id, project);
+        cloudData = null;
+      }
       const cloudVersion = current.version;
 
-      // 如果客户端版本落后，需要合并数据
-      if (clientVersion < cloudVersion) {
+      if (cloudData && clientVersion < cloudVersion) {
         mergedData = mergeUserData(cloudData, data);
         newVersion = cloudVersion + 1;
       } else {
-        // 客户端版本相同或更新，直接使用客户端数据
-        newVersion = clientVersion + 1;
+        // 客户端版本相同或更新，或云端损坏：直接使用客户端数据
+        newVersion = Math.max(clientVersion, cloudVersion || 0) + 1;
       }
     }
 
-    // 保存合并后的数据
+    // 保存合并后的数据（复用已序列化的客户端 data 当未合并时）
+    const storedJson = mergedData === data ? serialized : JSON.stringify(mergedData);
+
     await env.DB.prepare(`
       INSERT INTO user_sync_data (user_id, project, sync_data, version, updated_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -115,19 +151,19 @@ export async function uploadSyncData(request, env, user) {
     `).bind(
       user.id,
       project,
-      JSON.stringify(mergedData),
+      storedJson,
       newVersion,
       now,
-      now
+      now,
     ).run();
 
     return jsonResponse({
       success: true,
       user_id: user.id,
-      project: project,
+      project,
       data: mergedData,
       version: newVersion,
-      updated_at: now
+      updated_at: now,
     });
   } catch (error) {
     console.error('Upload sync data error:', error);

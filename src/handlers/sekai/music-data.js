@@ -16,8 +16,8 @@
 
 // SEKAI 音乐数据聚合
 
-import { CONFIG, DATA_SOURCES } from '../../config/constants.js';
-import { jsonResponse, errorResponse } from '../../utils/response.js';
+import { CONFIG, DATA_SOURCES, fetchWithTimeout } from '../../config/constants.js';
+import { errorResponse } from '../../utils/response.js';
 import { createCacheKey, getCachedResponse, setCachedResponse } from '../../utils/cache.js';
 import { logCacheEvent } from '../../utils/analytics.js';
 
@@ -26,12 +26,16 @@ export async function handleMusicData(request, env, ctx) {
   const forceRefresh = url.searchParams.get('refresh') === '1';
   const cache = caches.default;
   const cacheKey = createCacheKey(url, '/sekai/music_data.json');
+  const isHead = request.method === 'HEAD';
 
   // 第一层：边缘缓存
   if (!forceRefresh) {
     const cached = await getCachedResponse(cache, cacheKey);
     if (cached) {
       logCacheEvent('music_data', true, 'edge');
+      if (isHead) {
+        return new Response(null, { status: cached.status, headers: cached.headers });
+      }
       return cached;
     }
   }
@@ -41,25 +45,40 @@ export async function handleMusicData(request, env, ctx) {
     const r2Result = await tryR2Cache(env, ctx, cache, cacheKey);
     if (r2Result) {
       logCacheEvent('music_data', true, 'r2');
+      if (isHead) {
+        return new Response(null, { status: r2Result.status, headers: r2Result.headers });
+      }
       return r2Result;
     }
   }
 
   // 第三层：源站获取
   logCacheEvent('music_data', false, 'origin');
-  return await fetchAndCache(env, ctx, cache, cacheKey);
+  const response = await fetchAndCache(env, ctx, cache, cacheKey);
+  if (isHead) {
+    return new Response(null, { status: response.status, headers: response.headers });
+  }
+  return response;
 }
 
 async function tryR2Cache(env, ctx, cache, cacheKey) {
-  const r2Object = await env.BUCKET.get(CONFIG.R2_KEY);
+  if (!env?.BUCKET) return null;
+
+  let r2Object;
+  try {
+    r2Object = await env.BUCKET.get(CONFIG.R2_KEY);
+  } catch (error) {
+    console.error('R2 get failed:', error);
+    return null;
+  }
   if (!r2Object) return null;
 
   const metadata = r2Object.customMetadata || {};
-  const cachedAt = parseInt(metadata.cachedAt || '0');
+  const cachedAt = parseInt(metadata.cachedAt || '0', 10);
   const age = Date.now() - cachedAt;
 
   // 超过 STALE_TTL，缓存完全过期
-  if (age > CONFIG.STALE_TTL * 1000) {
+  if (!Number.isFinite(cachedAt) || age > CONFIG.STALE_TTL * 1000) {
     return null;
   }
 
@@ -68,10 +87,10 @@ async function tryR2Cache(env, ctx, cache, cacheKey) {
 
   const response = new Response(body, {
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': `public, max-age=${Math.min(remainingFresh, CONFIG.EDGE_TTL)}`,
       'X-Cache': 'HIT',
-      'X-Age': Math.floor(age / 1000).toString(),
+      'X-Age': String(Math.floor(age / 1000)),
     },
   });
 
@@ -90,8 +109,10 @@ async function backgroundRefresh(env, cache, cacheKey) {
   try {
     const data = await fetchMergedData();
     if (data) {
-      await storeToR2(env, data);
-      await storeToEdge(cache, cacheKey, data);
+      await Promise.all([
+        storeToR2(env, data),
+        storeToEdge(cache, cacheKey, data),
+      ]);
     }
   } catch (e) {
     console.error('Background refresh failed:', e.message);
@@ -110,23 +131,27 @@ async function fetchAndCache(env, ctx, cache, cacheKey) {
 
     return new Response(data.json, {
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': `public, max-age=${CONFIG.EDGE_TTL}`,
         'X-Cache': 'MISS',
-        'X-Count': data.count.toString(),
+        'X-Count': String(data.count),
       },
     });
   } catch (error) {
     // 降级：尝试返回旧缓存
-    const stale = await env.BUCKET.get(CONFIG.R2_KEY);
-    if (stale) {
-      return new Response(stale.body, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=10',
-          'X-Cache': 'STALE-ERROR',
-        },
-      });
+    try {
+      const stale = env?.BUCKET ? await env.BUCKET.get(CONFIG.R2_KEY) : null;
+      if (stale) {
+        return new Response(stale.body, {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=10',
+            'X-Cache': 'STALE-ERROR',
+          },
+        });
+      }
+    } catch (staleErr) {
+      console.error('Stale R2 fallback failed:', staleErr);
     }
 
     return errorResponse('Service temporarily unavailable', 503, error.message);
@@ -135,13 +160,15 @@ async function fetchAndCache(env, ctx, cache, cacheKey) {
 
 async function fetchMergedData() {
   const [musicsResp, vocalsResp, titlesResp] = await Promise.all([
-    fetch(DATA_SOURCES.musics),
-    fetch(DATA_SOURCES.musicVocals),
-    fetch(DATA_SOURCES.musicTitles),
+    fetchWithTimeout(DATA_SOURCES.musics),
+    fetchWithTimeout(DATA_SOURCES.musicVocals),
+    fetchWithTimeout(DATA_SOURCES.musicTitles),
   ]);
 
   if (!musicsResp.ok || !vocalsResp.ok || !titlesResp.ok) {
-    throw new Error(`Upstream failed: musics=${musicsResp.status}, vocals=${vocalsResp.status}, titles=${titlesResp.status}`);
+    throw new Error(
+      `Upstream failed: musics=${musicsResp.status}, vocals=${vocalsResp.status}, titles=${titlesResp.status}`,
+    );
   }
 
   const [musics, vocals, titles] = await Promise.all([
@@ -150,9 +177,14 @@ async function fetchMergedData() {
     titlesResp.json(),
   ]);
 
+  if (!Array.isArray(musics) || !Array.isArray(vocals)) {
+    throw new Error('Upstream returned unexpected shape (expected arrays)');
+  }
+
   // 构建 vocals 索引
   const vocalsMap = new Map();
   for (const v of vocals) {
+    if (v == null || v.musicId == null) continue;
     if (!vocalsMap.has(v.musicId)) {
       vocalsMap.set(v.musicId, []);
     }
@@ -161,16 +193,17 @@ async function fetchMergedData() {
       t: v.musicVocalType,
       c: v.caption,
       a: v.assetbundleName,
-      ch: (v.characters || []).map(c => [c.characterId, c.characterType]),
+      ch: (v.characters || []).map((c) => [c.characterId, c.characterType]),
     });
   }
 
   // 合并数据（精简字段）
-  const merged = musics.map(m => ({
+  const titleMap = titles && typeof titles === 'object' ? titles : {};
+  const merged = musics.map((m) => ({
     i: m.id,
     t: m.title,
     p: m.pronunciation,
-    tz: titles[m.id] || null,
+    tz: titleMap[m.id] ?? null,
     c: m.composer,
     l: m.lyricist,
     a: m.assetbundleName,
@@ -195,13 +228,14 @@ async function fetchMergedData() {
 }
 
 async function storeToR2(env, data) {
+  if (!env?.BUCKET) return;
   await env.BUCKET.put(CONFIG.R2_KEY, data.json, {
     httpMetadata: {
       contentType: 'application/json',
     },
     customMetadata: {
-      cachedAt: data.timestamp.toString(),
-      count: data.count.toString(),
+      cachedAt: String(data.timestamp),
+      count: String(data.count),
     },
   });
 }
@@ -209,7 +243,7 @@ async function storeToR2(env, data) {
 async function storeToEdge(cache, cacheKey, data) {
   const response = new Response(data.json, {
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': `public, max-age=${CONFIG.EDGE_TTL}`,
       'X-Cache': 'REFRESH',
     },
