@@ -17,6 +17,7 @@
 // 用户统计 API
 
 import { jsonResponse, errorResponse } from '../../utils/response.js';
+import { CONFIG } from '../../config/constants.js';
 import { checkAndUnlockAchievements, checkTimeBasedAchievements } from './achievement-checker.js';
 
 /**
@@ -107,6 +108,21 @@ export async function reportUserEvent(request, env, user) {
       return errorResponse('Invalid event_type', 400);
     }
 
+    // metadata 会原样写进 user_activities。此前没有任何大小限制 ——
+    // 隔壁 sync.js 对同类输入做了双重检查，这条路径漏了。
+    let metadataJson = null;
+    if (metadata !== undefined && metadata !== null) {
+      try {
+        metadataJson = JSON.stringify(metadata);
+      } catch {
+        // 循环引用等无法序列化的输入
+        return errorResponse('Invalid metadata', 400);
+      }
+      if (metadataJson.length > CONFIG.EVENT_METADATA_MAX_BYTES) {
+        return errorResponse('Metadata too large', 413);
+      }
+    }
+
     const now = Date.now();
 
     // 1. 插入活动记录
@@ -117,7 +133,7 @@ export async function reportUserEvent(request, env, user) {
       user.id,
       project,
       event_type,
-      metadata ? JSON.stringify(metadata) : null,
+      metadataJson,
       now
     ).run();
 
