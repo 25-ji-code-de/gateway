@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/schemas/wrangler.json",
   "name": "gateway",
   "main": "index.js",
-  "compatibility_date": "2024-01-01",
+  "compatibility_date": "2026-02-10",
   "r2_buckets": [
     {
       "binding": "BUCKET",
