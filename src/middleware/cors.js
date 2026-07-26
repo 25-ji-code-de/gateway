@@ -14,35 +14,35 @@
  * limitations under the License.
  */
 
-// CORS 中间件
+// CORS 中间件 —— 实现已移至 @25-ji-code-de/sekai-worker-kit。
+// 保留本仓历史导出名，调用点无需改动。
 
-export const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+import { CORS_HEADERS as KIT_CORS_HEADERS, handleCors, withCors } from '@25-ji-code-de/sekai-worker-kit';
+
+/**
+ * gateway 只暴露 GET / HEAD / POST / PUT / OPTIONS。
+ * worker-kit 的默认值还包含 DELETE，这里收窄回本仓原本的集合。
+ */
+export const CORS_HEADERS = Object.freeze({
+  ...KIT_CORS_HEADERS,
   // PUT /user/profile; POST sync/events; GET/HEAD reads
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Max-Age': '86400',
-};
+});
 
+/**
+ * OPTIONS 预检返回 204，其余返回 null 让调用方继续。
+ * @param {Request} request
+ * @returns {Response|null}
+ */
 export function handleCORS(request) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: CORS_HEADERS,
-    });
-  }
-  return null;
+  return handleCors(request, CORS_HEADERS);
 }
 
+/**
+ * 给已有响应补上 CORS 头。
+ * @param {Response} response
+ * @returns {Response}
+ */
 export function addCORSHeaders(response) {
-  // Avoid re-wrapping when headers are already present (cheap path)
-  const newHeaders = new Headers(response.headers);
-  for (const [key, value] of Object.entries(CORS_HEADERS)) {
-    newHeaders.set(key, value);
-  }
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: newHeaders,
-  });
+  return withCors(response, CORS_HEADERS);
 }
