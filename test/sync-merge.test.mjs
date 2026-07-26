@@ -140,6 +140,105 @@ describe('mergeUserData —— today_time 与 today_date 是一对', () => {
   });
 });
 
+describe('mergeUserData —— 畸形数据不能把同步弄死', () => {
+  /*
+   * 这个函数的两个入参都是**用户可控**的：
+   *
+   *   localData  直接来自请求体，uploadSyncData 只校验了 typeof === 'object'
+   *   cloudData  是之前某次上传原样存下来的 —— 首次上传（云端还没有行）
+   *              根本不走合并，所以任意形状都能落库
+   *
+   * 于是存一次畸形数据之后，每次「客户端版本落后」的同步都会走到这里，
+   * 一路抛到 500，**这个用户的同步永久卡死**，得改库才能救。
+   *
+   * 下面这些形状实测都能触发（修复前）：
+   *   recent_activities 里有 null      → Cannot read properties of null
+   *   recent_activities 是对象          → not iterable
+   *   unlocked_achievements 是数字      → not iterable
+   */
+  const good = {
+    userStats: { pomodoro_count: 1, recent_activities: [], unlocked_achievements: [] },
+  };
+
+  const MALFORMED = [
+    ['recent_activities 里混着 null / 字符串 / 数字', { userStats: { recent_activities: [null, 'x', 5] } }],
+    ['recent_activities 是对象', { userStats: { recent_activities: { a: 1 } } }],
+    ['recent_activities 是字符串', { userStats: { recent_activities: 'oops' } }],
+    ['unlocked_achievements 是数字', { userStats: { unlocked_achievements: 42 } }],
+    ['unlocked_achievements 是字符串', { userStats: { unlocked_achievements: 'abc' } }],
+    ['userStats 是字符串', { userStats: 'nope' }],
+    ['userStats 是数组', { userStats: [1, 2, 3] }],
+    ['preferences 是字符串', { userStats: {}, preferences: 'x', preferences_modified: true }],
+    ['cdPlayer 是数字', { userStats: {}, cdPlayer: 1, cdPlayer_used: true }],
+    ['worldClockTimeZones 是字符串', { userStats: {}, preferences: { worldClockTimeZones: 'x' }, preferences_modified: true }],
+    ['playlists 里有 null', { userStats: {}, cdPlayer: { playlists: [null, { id: 1 }] }, cdPlayer_used: true }],
+    ['favorites 是对象', { userStats: {}, cdPlayer: { favorites: { a: 1 } }, cdPlayer_used: true }],
+    ['数值字段是对象', { userStats: { total_time: { a: 1 } } }],
+    ['整个 data 是数组', [1, 2]],
+  ];
+
+  for (const [label, bad] of MALFORMED) {
+    for (const [dir, cloud, local] of [
+      ['云端畸形', bad, good],
+      ['本地畸形', good, bad],
+    ]) {
+      test(`${label}（${dir}）`, () => {
+        const merged = mergeUserData(cloud, local);
+
+        // 不抛只是及格线，产出还得是能用的结构
+        assert.ok(Array.isArray(merged.userStats.recent_activities), 'recent_activities 必须是数组');
+        assert.ok(Array.isArray(merged.userStats.unlocked_achievements), 'unlocked_achievements 必须是数组');
+        for (const f of ['pomodoro_count', 'streak_days', 'songs_played', 'total_time', 'today_time']) {
+          assert.ok(Number.isFinite(merged.userStats[f]), `${f} 必须是有限数，得到 ${merged.userStats[f]}`);
+        }
+      });
+    }
+  }
+
+  test('字符串不会被拆成一个个字符塞进成就列表', () => {
+    // [...'abc'] 是 ['a','b','c'] —— 不判数组的话就会这样
+    const merged = mergeUserData({ userStats: { unlocked_achievements: 'abc' } }, good);
+    assert.deepEqual(merged.userStats.unlocked_achievements, []);
+  });
+
+  test('活动记录里的坏元素被跳过，好元素保留', () => {
+    const merged = mergeUserData(
+      { userStats: { recent_activities: [null, { type: 'a', timestamp: 100 }, 'x'] } },
+      { userStats: { recent_activities: [{ type: 'b', timestamp: 200 }] } },
+    );
+    assert.deepEqual(
+      merged.userStats.recent_activities.map((a) => a.type),
+      ['b', 'a'],
+    );
+  });
+
+  test('旧格式（统计直接放在根上）仍然认', () => {
+    // `asObject(cloudData).userStats || cloudData` 里的 `|| cloudData`
+    // 就是为这个留的：早期的 data 没有 userStats 这一层
+    const legacy = { pomodoro_count: 5, total_time: 3600, unlocked_achievements: ['a'] };
+    const modern = { userStats: { pomodoro_count: 2, total_time: 100, unlocked_achievements: ['b'] } };
+
+    const a = mergeUserData(legacy, modern);
+    assert.equal(a.userStats.pomodoro_count, 5);
+    assert.equal(a.userStats.total_time, 3600);
+    assert.deepEqual(a.userStats.unlocked_achievements.sort(), ['a', 'b']);
+
+    const b = mergeUserData(modern, legacy);
+    assert.equal(b.userStats.pomodoro_count, 5);
+    assert.deepEqual(b.userStats.unlocked_achievements.sort(), ['a', 'b']);
+  });
+
+  test('时区列表是字符串时不会被原样返回出去', () => {
+    // 原来是 `if (!cloudZones) return localZones` —— 会把字符串当列表返回
+    const merged = mergeUserData(
+      { userStats: {}, preferences: { worldClockTimeZones: 'not-a-list' } },
+      { userStats: {}, preferences: {}, preferences_modified: true },
+    );
+    const zones = merged.preferences.worldClockTimeZones;
+    assert.ok(zones === null || Array.isArray(zones), `得到 ${JSON.stringify(zones)}`);
+  });
+});
+
 describe('mergeUserData —— 其余字段没被改坏', () => {
   test('累计数值仍然取最大值', () => {
     const merged = mergeUserData(
