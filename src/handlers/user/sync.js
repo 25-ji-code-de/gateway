@@ -178,7 +178,43 @@ export async function uploadSyncData(request, env, user) {
  * 2. preferences（偏好设置）：云端优先，本地有标记才上传
  * 3. cdPlayer（CD播放器）：云端优先，本地有标记才上传
  */
-function mergeUserData(cloudData, localData) {
+/**
+ * 把一个"日期字段"解析成可比较的毫秒数。
+ *
+ * 客户端存的是 `new Date().toDateString()`（"Sun Jul 26 2026"），
+ * 但历史数据里也可能是 ISO 串或时间戳数字，所以统一走 Date 解析
+ * 而不是假定某一种格式。解析不出来的当作"没有"（null）。
+ *
+ * @returns {number|null} 毫秒数；无法解析时 null
+ */
+export function parseDay(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * 比较两个日期字段。
+ * @returns {number} <0 表示 local 更晚，>0 表示 cloud 更晚，0 表示同一天或都没有
+ */
+export function compareDay(cloudValue, localValue) {
+  const c = parseDay(cloudValue);
+  const l = parseDay(localValue);
+  if (c === null && l === null) return 0;
+  if (c === null) return -1; // 只有 local 有 → local 更晚
+  if (l === null) return 1;
+  if (l === c) return 0;
+  return l > c ? -1 : 1;
+}
+
+/** 取更晚的那一天；都解析不出来时优先保留 local 的原值。 */
+export function laterDay(cloudValue, localValue) {
+  const order = compareDay(cloudValue, localValue);
+  if (order === 0) return localValue ?? cloudValue ?? null;
+  return order < 0 ? localValue : cloudValue;
+}
+
+export function mergeUserData(cloudData, localData) {
   const merged = {};
 
   // ========== 1. 用户统计数据（userStats）==========
@@ -189,12 +225,14 @@ function mergeUserData(cloudData, localData) {
   merged.userStats = {};
 
   // 数值类型：取最大值
+  //
+  // today_time **不在这里** —— 它和 today_date 是一对，
+  // 必须一起决定，见下面。单独取最大值会把昨天的数字贴到今天。
   const numericFields = [
     'pomodoro_count',
     'streak_days',
     'songs_played',
-    'total_time',
-    'today_time'
+    'total_time'
   ];
 
   for (const field of numericFields) {
@@ -204,16 +242,45 @@ function mergeUserData(cloudData, localData) {
     );
   }
 
-  // 时间戳类型：取最新值
-  const timestampFields = [
-    'last_login_date',
-    'today_date'
-  ];
+  // 日期字段：取更晚的那一天
+  //
+  // 这两个字段存的是 `new Date().toDateString()` 的结果 ——
+  // "Sun Jul 26 2026" 这种**星期几开头**的格式（见 25ji-sagyo 的
+  // achievements.js）。原来这里直接用 `>` 比字符串，那等于按星期名
+  // 排字典序：连续两天里有 3/7 会选中**更旧**的日期。
+  //
+  //   "Mon Jul 27 2026" > "Sun Jul 26 2026"  →  false（M < S）
+  //
+  // 选中旧日期的后果不是显示错一下就完了：客户端看到
+  // last_login_date 不是今天，就会重算连续天数，写下一条
+  // "连续第 1 天" 的活动记录 —— 那条记录是永久的。
+  merged.userStats.last_login_date = laterDay(
+    cloudStats.last_login_date,
+    localStats.last_login_date,
+  );
 
-  for (const field of timestampFields) {
-    const cloudTime = cloudStats[field] || 0;
-    const localTime = localStats[field] || 0;
-    merged.userStats[field] = localTime > cloudTime ? localStats[field] : cloudStats[field];
+  // today_time 与 today_date 是**一对**：一个数值，和它属于哪一天。
+  //
+  // 原来 today_time 在上面的 numericFields 里按 Math.max 合，
+  // today_date 在这里单独合 —— 两边各挑各的，结果就是
+  // **昨天的数字被贴上了今天的日期**。用户会看到"今天已学习 3 小时"，
+  // 而那 3 小时是昨天的。
+  //
+  // 只有同一天才谈得上取最大值；不同天就整对采用更晚的那一天。
+  const dayOrder = compareDay(cloudStats.today_date, localStats.today_date);
+  if (dayOrder === 0) {
+    merged.userStats.today_time = Math.max(
+      Number(cloudStats.today_time) || 0,
+      Number(localStats.today_time) || 0,
+    );
+    merged.userStats.today_date = localStats.today_date ?? cloudStats.today_date ?? null;
+  } else if (dayOrder < 0) {
+    // 本地更晚
+    merged.userStats.today_time = Number(localStats.today_time) || 0;
+    merged.userStats.today_date = localStats.today_date ?? null;
+  } else {
+    merged.userStats.today_time = Number(cloudStats.today_time) || 0;
+    merged.userStats.today_date = cloudStats.today_date ?? null;
   }
 
   // 数组类型：合并去重
