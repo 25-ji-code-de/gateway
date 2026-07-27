@@ -52,6 +52,40 @@ describe('错误信封', () => {
     assert.equal((await errorResponse('x', 418).json()).error.code, 'error');
   });
 
+  test('401 带 WWW-Authenticate —— 客户端唯一能读的认证提示', () => {
+    /*
+     * RFC 6750 §3：Bearer 保护的资源在 401 时**必须**给出挑战头。
+     *
+     * 实测（2026-07-27）线上没有：
+     *   $ curl -i https://api.nightcord.de5.net/user/stats
+     *   HTTP/1.1 401 Unauthorized  …（没有 WWW-Authenticate）
+     */
+    const res = errorResponse('Unauthorized', 401);
+    assert.equal(res.headers.get('WWW-Authenticate'), 'Bearer');
+  });
+
+  test('浏览器读得到它 —— 401 同时暴露该头', () => {
+    /*
+     * 光发不暴露等于白发：跨域响应默认只暴露 CORS 安全清单里那几个头，
+     * 服务端发了、DevTools 里也看得见，而 `res.headers.get(...)`
+     * 在客户端返回 null。本仓的调用方是 hub / 25ji 这些浏览器 SPA。
+     */
+    const expose = errorResponse('Unauthorized', 401).headers.get('Access-Control-Expose-Headers');
+    assert.ok(expose, '401 没有 Access-Control-Expose-Headers');
+    assert.match(expose, /WWW-Authenticate/);
+  });
+
+  test('只有 401 带挑战头，别的状态码不带', () => {
+    // 403/404/500 发 Bearer 挑战头是错的：它们不是「你还没认证」
+    for (const status of [400, 403, 404, 500]) {
+      assert.equal(
+        errorResponse('x', status).headers.get('WWW-Authenticate'),
+        null,
+        `${status} 不该带挑战头`,
+      );
+    }
+  });
+
   test('显式 code 覆盖状态码推导', async () => {
     const body = await errorResponse('corrupt', 500, null, 'sync_corrupt').json();
     assert.equal(body.error.code, 'sync_corrupt');

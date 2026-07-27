@@ -73,70 +73,27 @@ export async function getUserAchievements(request, env, user) {
   }
 }
 
-/**
- * 检查并解锁成就
- * 这个函数会在用户事件上报后自动调用
+/*
+ * 这里原本有 checkAchievements() 与 checkRequirement()。删掉了。
+ *
+ * 1. **它们是死代码。** 全仓没有任何地方 import 它们；真正在跑的是
+ *    achievement-checker.js 的 checkAndUnlockAchievements，
+ *    由 stats.js 调用。
+ *
+ * 2. **而且写错了。** 它的主查询是
+ *
+ *      WHERE ua.unlocked_at IS NULL OR ua.unlocked_at IS NOT NULL
+ *
+ *    注释写着"获取所有**未解锁**的成就"，但这个谓词恒真 ——
+ *    取的是全部成就。配上下面的
+ *
+ *      ON CONFLICT ... DO UPDATE SET unlocked_at = ?
+ *
+ *    每次检查都会把**已解锁**成就的 unlocked_at 刷成当前时间，
+ *    "什么时候拿到的"这个信息会被抹掉。
+ *
+ *    achievement-checker.js 那份是对的：先把已解锁的读进 Set 跳过，
+ *    插入用 ON CONFLICT DO NOTHING。
+ *
+ * 留着一份没人调用、逻辑还相反的实现，只会让下一个想接线的人接错。
  */
-export async function checkAchievements(env, userId, project, eventType) {
-  try {
-    // 获取所有未解锁的成就
-    const achievements = await env.DB.prepare(`
-      SELECT a.id, a.requirement
-      FROM achievements a
-      LEFT JOIN user_achievements ua ON a.id = ua.achievement_id AND ua.user_id = ?
-      WHERE ua.unlocked_at IS NULL OR ua.unlocked_at IS NOT NULL
-    `).bind(userId).all();
-
-    for (const achievement of achievements.results) {
-      const requirement = JSON.parse(achievement.requirement);
-
-      // 检查是否满足解锁条件
-      const shouldUnlock = await checkRequirement(env, userId, requirement);
-
-      if (shouldUnlock) {
-        // 解锁成就
-        const now = Date.now();
-        await env.DB.prepare(`
-          INSERT INTO user_achievements (user_id, achievement_id, progress, unlocked_at, created_at)
-          VALUES (?, ?, 100, ?, ?)
-          ON CONFLICT(user_id, achievement_id)
-          DO UPDATE SET unlocked_at = ?, progress = 100
-        `).bind(userId, achievement.id, now, now, now).run();
-      }
-    }
-  } catch (error) {
-    console.error('Check achievements error:', error);
-  }
-}
-
-/**
- * 检查是否满足成就要求
- */
-async function checkRequirement(env, userId, requirement) {
-  const { type, project, metric, value } = requirement;
-
-  if (type === 'stat') {
-    // 统计类成就：检查某个指标是否达到目标值
-    const result = await env.DB.prepare(`
-      SELECT SUM(CAST(metric_value AS INTEGER)) as total
-      FROM user_stats
-      WHERE user_id = ? AND project = ? AND metric_name = ?
-    `).bind(userId, project, metric).first();
-
-    return result && result.total >= value;
-  }
-
-  if (type === 'streak') {
-    // 连续类成就：检查连续天数
-    const result = await env.DB.prepare(`
-      SELECT COUNT(DISTINCT date) as days
-      FROM user_stats
-      WHERE user_id = ? AND project = ?
-      AND date >= date('now', '-' || ? || ' days')
-    `).bind(userId, project, value).first();
-
-    return result && result.days >= value;
-  }
-
-  return false;
-}

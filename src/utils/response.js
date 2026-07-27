@@ -73,8 +73,37 @@ export function jsonResponse(data, status = 200, headers = {}) {
 export function errorResponse(message, status = 500, details = null, code = undefined) {
   return kitErrorResponse(code ?? CODE_BY_STATUS[status] ?? 'error', message, status, {
     details,
+    ...(status === 401 ? { headers: BEARER_CHALLENGE } : {}),
   });
 }
+
+/**
+ * RFC 6750 §3：Bearer 保护的资源在 401 时**必须**给出挑战头。
+ * 它是客户端唯一能机器读取的「我该怎么认证」信号。
+ *
+ * 实测（2026-07-27）线上没有：
+ *
+ *     $ curl -i https://api.nightcord.de5.net/user/stats
+ *     HTTP/1.1 401 Unauthorized
+ *     ...（没有 WWW-Authenticate）
+ *
+ * 本仓所有 401 都出自上面那个 errorResponse，所以在那里统一加，
+ * 将来新增的 401 自动带上。
+ *
+ * ── 为什么还要 Expose-Headers ────────────────────────────────────
+ *
+ * 浏览器默认只让脚本读到 CORS 安全清单里那几个响应头。不暴露的话，
+ * 服务端发了、DevTools 里也看得见，而客户端 `res.headers.get(...)`
+ * 返回 `null` —— 等于白发，而且是那种「看起来做完了」的白发。
+ *
+ * sekai-worker-kit#2 把它加进了共享的 CORS_HEADERS，但本仓 pin 的是
+ * `#v0.1.1`，那边发新 tag 之前到不了这里。所以先在这条响应上就地暴露 ——
+ * 等版本号跟上之后这两行可以删掉（届时 kit 的 CORS_HEADERS 已经带了）。
+ */
+const BEARER_CHALLENGE = Object.freeze({
+  'WWW-Authenticate': 'Bearer',
+  'Access-Control-Expose-Headers': 'WWW-Authenticate',
+});
 
 /**
  * 成功响应 `{ success: true, data, message? }`。
