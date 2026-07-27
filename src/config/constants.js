@@ -28,6 +28,14 @@ export const CONFIG = {
 
   // 用户同步 JSON 体大小上限（字节）
   SYNC_BODY_MAX_BYTES: 512 * 1024,
+
+  // 单条事件的 metadata 序列化后大小上限（字节）
+  //
+  // metadata 会原样 JSON.stringify 后写进 user_activities，此前完全无界 ——
+  // 隔壁 sync.js 有双重大小检查，这条路径漏了。
+  // 现有写入方（nightcord 的 online_minutes、25ji 的 study_minutes 等）
+  // 的 metadata 都只有几个数字字段，4KB 有充足余量。
+  EVENT_METADATA_MAX_BYTES: 4 * 1024,
 };
 
 export const DATA_SOURCES = {
