@@ -14,63 +14,16 @@
  * limitations under the License.
  */
 
-// 认证中间件 - 验证 SEKAI Pass 的 access token
+// 认证中间件 —— 实现已移至 @25-ji-code-de/sekai-worker-kit。
+//
+// 此前这个文件与 nako/src/middleware/auth.ts 是同一个函数的 JS / TS
+// 两份逐字拷贝（相同的 SQL、相同的 MAX_TOKEN_LEN、相同的过期判断）。
+//
+// 行为与迁移前完全一致：任何失败路径返回 null，不抛异常。
+// 返回值新增了 clientId 与 scopes 两个字段（此前 access_tokens.scope
+// 与 client_id 从未被读取）—— 新增字段不影响现有调用点。
+//
+// 想收紧 scope 时传第三个参数：
+//   authenticate(request, env, { requireScopes: ['profile'] })
 
-/** Reject absurdly long Authorization values early (DoS / accidental paste). */
-const MAX_TOKEN_LEN = 512;
-
-/**
- * 验证 access token
- * 直接查询 SEKAI Pass 数据库，避免额外的网络请求
- * @returns {Promise<{id: string, username: string, email: string}|null>}
- */
-export async function authenticate(request, env) {
-  const authHeader = request.headers.get('Authorization');
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-
-  const token = authHeader.slice(7).trim();
-  if (!token || token.length > MAX_TOKEN_LEN) {
-    return null;
-  }
-
-  if (!env?.AUTH_DB) {
-    console.error('Authentication error: AUTH_DB binding missing');
-    return null;
-  }
-
-  try {
-    // 查询 SEKAI Pass 数据库验证 token
-    const result = await env.AUTH_DB.prepare(`
-      SELECT
-        at.user_id,
-        at.expires_at,
-        u.username,
-        u.email
-      FROM access_tokens at
-      JOIN users u ON at.user_id = u.id
-      WHERE at.token = ?
-    `).bind(token).first();
-
-    if (!result) {
-      return null;
-    }
-
-    // 检查 token 是否过期（expires_at 为 epoch ms）
-    const expiresAt = Number(result.expires_at);
-    if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
-      return null;
-    }
-
-    return {
-      id: result.user_id,
-      username: result.username,
-      email: result.email,
-    };
-  } catch (error) {
-    console.error('Authentication error:', error);
-    return null;
-  }
-}
+export { authenticate, extractBearerToken, MAX_TOKEN_LEN } from '@25-ji-code-de/sekai-worker-kit';
