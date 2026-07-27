@@ -7,7 +7,7 @@
   //   R2_BUCKET_NAME  — R2 bucket 名称
   // 真正的 secret 通过 `wrangler secret` 管理，不在此文件中
 
-  "name": "gateway",
+  "name": "${WORKER_NAME}",
   "main": "index.js",
   "compatibility_date": "2026-02-10",
   "r2_buckets": [
