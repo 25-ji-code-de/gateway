@@ -133,9 +133,9 @@ describe('/user/* 无有效凭据一律 401', () => {
   test('过期的 token 也是 401', async () => {
     env.DB._raw
       .prepare(
-        'INSERT INTO access_tokens (token, user_id, scope, expires_at, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO access_tokens (token, user_id, client_id, scope, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run('expired', 'u1', 'profile', Date.now() - 1000, Date.now() - 10000);
+      .run('expired', 'u1', '25ji_client', 'profile', Date.now() - 1000, Date.now() - 10000);
     env.DB._raw.prepare('INSERT INTO users (id, username) VALUES (?, ?)').run('u1', 'nako');
 
     const res = await handleUser(
@@ -172,15 +172,15 @@ describe('有效凭据时确实放行（否则上面几条可能是「全都 401
   beforeEach(() => {
     env.DB._raw
       .prepare(
-        'INSERT INTO access_tokens (token, user_id, scope, expires_at, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO access_tokens (token, user_id, client_id, scope, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run('good', 'u1', 'profile', Date.now() + 3_600_000, Date.now());
+      .run('good', 'u1', '25ji_client', 'profile', Date.now() + 3_600_000, Date.now());
     env.DB._raw
       .prepare('INSERT INTO users (id, username, email) VALUES (?, ?, ?)')
       .run('u1', 'nako', 'nako@example.test');
   });
 
-  test('GET /user/profile 带有效 token 时真的走通（200）', async () => {
+  test('GET /user/profile 带第一方 token 时真的走通（200）', async () => {
     const res = await handleUser(
       req('GET', '/user/profile', { Authorization: 'Bearer good' }),
       env,
@@ -189,18 +189,51 @@ describe('有效凭据时确实放行（否则上面几条可能是「全都 401
     assert.equal(
       res.status,
       200,
-      `有效 token 拿到 ${res.status} —— 若是 401，说明上面那批测试是「全都 401」的假象`,
+      `第一方 token 拿到 ${res.status} —— 若是 401/403，说明上面那批拒绝测试是「全都拒绝」的假象`,
     );
   });
 });
 
-describe('鉴权在分发之前（结构性质）', () => {
+describe('用户 API 只服务 SEKAI 第一方 client', () => {
+  beforeEach(() => {
+    env.DB._raw
+      .prepare(
+        'INSERT INTO access_tokens (token, user_id, client_id, scope, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        'third-party',
+        'u1',
+        'some-third-party-client',
+        'openid profile email',
+        Date.now() + 3_600_000,
+        Date.now(),
+      );
+    env.DB._raw
+      .prepare('INSERT INTO users (id, username, email) VALUES (?, ?, ?)')
+      .run('u1', 'third-party-user', 'user@example.test');
+  });
+
+  for (const [method, path] of PATHS) {
+    test(`${method} ${path} —— 有效第三方 token 仍返回 403`, async () => {
+      const res = await handleUser(
+        req(method, path, { Authorization: 'Bearer third-party' }),
+        env,
+        {},
+      );
+      assert.equal(res.status, 403, `${method} ${path} 返回了 ${res.status}`);
+      const body = await res.json();
+      assert.equal(body.error.code, 'forbidden');
+    });
+  }
+});
+
+describe('鉴权与第一方边界都在分发之前（结构性质）', () => {
   /*
    * 上面测的是行为。这一条测**结构**：`authenticate` 必须出现在任何
    * 路径比较之前。行为测试只能覆盖已知路径，而这条能挡住
    * 「新加一条路径并顺手提到鉴权之前」。
    */
-  test('handleUser 里 authenticate 排在第一个 path 比较之前', async () => {
+  test('handleUser 里 authenticate 与第一方检查都排在第一个 path 比较之前', async () => {
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const { dirname, join } = await import('node:path');
@@ -223,5 +256,16 @@ describe('鉴权在分发之前（结构性质）', () => {
 
     const rejectAt = fn.indexOf("errorResponse('Unauthorized', 401)");
     assert.ok(rejectAt > authAt && rejectAt < firstPathAt, '鉴权失败没有在分发前拦下');
+
+    const firstPartyAt = fn.indexOf('isFirstPartyClient(user.clientId)');
+    assert.ok(firstPartyAt > rejectAt && firstPartyAt < firstPathAt, '第一方检查不在分发前');
+
+    const forbiddenAt = fn.indexOf(
+      "errorResponse('This API is restricted to SEKAI first-party clients', 403)",
+    );
+    assert.ok(
+      forbiddenAt > firstPartyAt && forbiddenAt < firstPathAt,
+      '第三方 client 没有在分发前 return 403',
+    );
   });
 });
