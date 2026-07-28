@@ -17,6 +17,7 @@
 // 用户相关 API
 
 import { errorResponse } from '../../utils/response.js';
+import { isFirstPartyClient } from '../../config/first-party-clients.js';
 import { authenticate } from '../../middleware/auth.js';
 import { getUserStats, reportUserEvent, getUserActivity } from './stats.js';
 import { getUserAchievements } from './achievements.js';
@@ -28,6 +29,12 @@ export async function handleUser(request, env, ctx) {
   const user = await authenticate(request, env);
   if (!user) {
     return errorResponse('Unauthorized', 401);
+  }
+
+  // gateway 的用户 API 是 SEKAI 生态内部数据面，不是 Pass 的第三方开放 API。
+  // token 有效但签发给第三方 client 时，用 403 区分于凭据无效的 401。
+  if (!isFirstPartyClient(user.clientId)) {
+    return errorResponse('This API is restricted to SEKAI first-party clients', 403);
   }
 
   if (!env?.DB) {

@@ -63,6 +63,7 @@ SEKAI 生态统一 API 网关 - 基于 Cloudflare Workers 的高性能 API 服�
 - 版本控制（防止数据冲突）
 - 自动去重（成就、活动记录）
 - 需要 SEKAI Pass 认证
+- 仅供 SEKAI 生态第一方 OAuth client 使用；第三方集成面是 SEKAI Pass 的 OIDC / UserInfo API
 
 **请求示例：**
 
