@@ -15,6 +15,7 @@ import {
   getLeaderboardProfile,
   getPeriodRange,
   updateLeaderboardProfile,
+  submitLeaderboardScore,
 } from '../src/handlers/user/leaderboards.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,7 +55,7 @@ function makeD1() {
 }
 
 const request = (path, init) => new Request(`https://api.example${path}`, init);
-const user = { id: 'u1', username: 'miku' };
+const user = { id: 'u1', username: 'miku', clientId: 'pico-client' };
 let env;
 
 beforeEach(() => {
@@ -198,5 +199,85 @@ describe('leaderboard query', () => {
       request('/user/leaderboards/bad.id'), env, user, 'bad.id',
     );
     assert.equal(malformed.status, 400);
+  });
+});
+
+describe('submitted score leaderboards', () => {
+  beforeEach(() => {
+    const now = Date.now();
+    for (const [id, aggregation] of [['daily-max', 'max'], ['daily-latest', 'latest']]) {
+      env.DB._raw.prepare(`
+        INSERT INTO leaderboard_definitions
+          (id, title, project, metric_name, source_type, aggregation, dimensions,
+           submit_client_id, period, sort_direction, min_score, created_at, updated_at)
+        VALUES (?, ?, 'pico', 'score', 'submission', ?, ?, 'pico-client',
+                'daily', 'desc', 1, ?, ?)
+      `).run(id, id, aggregation, '{"mode":"daily","rules_version":1}', now, now);
+    }
+  });
+
+  const scoreRequest = (board, body) => request(`/user/leaderboards/${board}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  test('accepts a score once and treats the submission id as idempotent', async () => {
+    const input = { submission_id: 'run_12345678', score: 1200, metadata: { combo: 8 } };
+    const first = await submitLeaderboardScore(
+      scoreRequest('daily-max', input), env, user, 'daily-max',
+    );
+    const duplicate = await submitLeaderboardScore(
+      scoreRequest('daily-max', { ...input, score: 999999 }), env, user, 'daily-max',
+    );
+    assert.equal(first.status, 202);
+    assert.equal((await first.json()).accepted, true);
+    assert.equal((await duplicate.json()).accepted, false);
+    const stored = env.DB._raw.prepare(`
+      SELECT score FROM leaderboard_submissions WHERE submission_id = ?
+    `).get(input.submission_id);
+    assert.equal(Number(stored.score), 1200);
+  });
+
+  test('rejects another first-party client and malformed scores', async () => {
+    const forbidden = await submitLeaderboardScore(
+      scoreRequest('daily-max', { submission_id: 'run_abcdefgh', score: 10 }),
+      env,
+      { ...user, clientId: '25ji_client' },
+      'daily-max',
+    );
+    assert.equal(forbidden.status, 403);
+
+    for (const score of [-1, 1.5, Number.MAX_SAFE_INTEGER]) {
+      const invalid = await submitLeaderboardScore(
+        scoreRequest('daily-max', { submission_id: 'run_abcdefgh', score }),
+        env,
+        user,
+        'daily-max',
+      );
+      assert.equal(invalid.status, 400);
+    }
+  });
+
+  test('max keeps the best run while latest keeps the newest run', async () => {
+    for (const board of ['daily-max', 'daily-latest']) {
+      await submitLeaderboardScore(
+        scoreRequest(board, { submission_id: `${board}_run_one`, score: 900 }),
+        env, user, board,
+      );
+      await submitLeaderboardScore(
+        scoreRequest(board, { submission_id: `${board}_run_two`, score: 400 }),
+        env, user, board,
+      );
+    }
+    const maxBody = await (await getLeaderboard(
+      request('/user/leaderboards/daily-max'), env, user, 'daily-max',
+    )).json();
+    const latestBody = await (await getLeaderboard(
+      request('/user/leaderboards/daily-latest'), env, user, 'daily-latest',
+    )).json();
+    assert.equal(Number(maxBody.me.score), 900);
+    assert.equal(Number(latestBody.me.score), 400);
+    assert.deepEqual(maxBody.leaderboard.dimensions, { mode: 'daily', rules_version: 1 });
   });
 });

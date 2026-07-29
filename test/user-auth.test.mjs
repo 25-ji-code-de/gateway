@@ -43,6 +43,7 @@ const PATHS = [
   ['GET', '/user/leaderboard-profile'],
   ['PUT', '/user/leaderboard-profile'],
   ['GET', '/user/leaderboards/focus-all-time'],
+  ['POST', '/user/leaderboards/pico-daily'],
   ['GET', '/user/sync'],
   ['POST', '/user/sync'],
 ];

@@ -94,6 +94,10 @@ CREATE TABLE IF NOT EXISTS leaderboard_definitions (
     title TEXT NOT NULL,
     project TEXT NOT NULL,
     metric_name TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'metric' CHECK (source_type IN ('metric', 'submission')),
+    aggregation TEXT NOT NULL DEFAULT 'sum' CHECK (aggregation IN ('sum', 'max', 'min', 'latest')),
+    dimensions TEXT NOT NULL DEFAULT '{}',
+    submit_client_id TEXT,
     period TEXT NOT NULL CHECK (period IN ('daily', 'weekly', 'monthly', 'all_time')),
     sort_direction TEXT NOT NULL DEFAULT 'desc' CHECK (sort_direction IN ('asc', 'desc')),
     min_score INTEGER NOT NULL DEFAULT 1,
@@ -119,3 +123,20 @@ CREATE INDEX idx_leaderboard_profiles_show_profile
 
 CREATE INDEX idx_user_stats_leaderboard
     ON user_stats(project, metric_name, date, user_id);
+
+CREATE TABLE IF NOT EXISTS leaderboard_submissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    submission_id TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    metadata TEXT,
+    achieved_date TEXT NOT NULL,
+    achieved_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(board_id, user_id, submission_id),
+    FOREIGN KEY (board_id) REFERENCES leaderboard_definitions(id)
+);
+
+CREATE INDEX idx_leaderboard_submissions_rank
+    ON leaderboard_submissions(board_id, achieved_date, user_id, score);

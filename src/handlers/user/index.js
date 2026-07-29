@@ -27,6 +27,7 @@ import {
   getLeaderboard,
   getLeaderboardProfile,
   updateLeaderboardProfile,
+  submitLeaderboardScore,
 } from './leaderboards.js';
 
 export async function handleUser(request, env, ctx) {
@@ -60,6 +61,9 @@ export async function handleUser(request, env, ctx) {
   const leaderboardMatch = /^\/user\/leaderboards\/([^/]+)$/.exec(path);
   if (leaderboardMatch && request.method === 'GET') {
     return getLeaderboard(request, env, user, leaderboardMatch[1]);
+  }
+  if (leaderboardMatch && request.method === 'POST') {
+    return submitLeaderboardScore(request, env, user, leaderboardMatch[1]);
   }
 
   // 路由分发
