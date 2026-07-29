@@ -21,6 +21,11 @@
       "binding": "AUTH_DB",
       "database_name": "sekai_pass_db",
       "database_id": "${AUTH_DB_ID}"
+    },
+    {
+      "binding": "DB",
+      "database_name": "pjsekai_db",
+      "database_id": "${DB_ID}"
     }
   ]
 }
