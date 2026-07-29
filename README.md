@@ -88,6 +88,15 @@ curl -X POST "https://api.nightcord.de5.net/user/sync" \
   }'
 ```
 
+### 4. 通用排行榜 API
+
+**端点:**
+- `GET /user/leaderboard-profile` - 获取当前用户的排行榜公开设置
+- `PUT /user/leaderboard-profile` - 选择是否公开榜单昵称
+- `GET /user/leaderboards/{board_id}` - 获取已登记榜单及当前用户排名
+
+有统计数据的用户默认以匿名身份进入榜单，并可自行选择公开昵称。数据模型、榜单配置和迁移步骤见 [排行榜设计文档](docs/leaderboards.md)。
+
 ## 🚀 快速开始
 
 ### 前置要求

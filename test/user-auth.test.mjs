@@ -40,6 +40,9 @@ const PATHS = [
   ['POST', '/user/events'],
   ['GET', '/user/activity'],
   ['GET', '/user/achievements'],
+  ['GET', '/user/leaderboard-profile'],
+  ['PUT', '/user/leaderboard-profile'],
+  ['GET', '/user/leaderboards/focus-all-time'],
   ['GET', '/user/sync'],
   ['POST', '/user/sync'],
 ];

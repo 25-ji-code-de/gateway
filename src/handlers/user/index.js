@@ -23,6 +23,11 @@ import { getUserStats, reportUserEvent, getUserActivity } from './stats.js';
 import { getUserAchievements } from './achievements.js';
 import { getSyncData, uploadSyncData } from './sync.js';
 import { getUserProfile, updateUserProfile } from './profile.js';
+import {
+  getLeaderboard,
+  getLeaderboardProfile,
+  updateLeaderboardProfile,
+} from './leaderboards.js';
 
 export async function handleUser(request, env, ctx) {
   // 认证检查
@@ -43,6 +48,19 @@ export async function handleUser(request, env, ctx) {
 
   const url = new URL(request.url);
   const path = url.pathname;
+
+  if (path === '/user/leaderboard-profile' && request.method === 'GET') {
+    return getLeaderboardProfile(request, env, user);
+  }
+
+  if (path === '/user/leaderboard-profile' && request.method === 'PUT') {
+    return updateLeaderboardProfile(request, env, user);
+  }
+
+  const leaderboardMatch = /^\/user\/leaderboards\/([^/]+)$/.exec(path);
+  if (leaderboardMatch && request.method === 'GET') {
+    return getLeaderboard(request, env, user, leaderboardMatch[1]);
+  }
 
   // 路由分发
   if (path === '/user/profile' && request.method === 'GET') {
