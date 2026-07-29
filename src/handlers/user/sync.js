@@ -21,6 +21,36 @@ import { jsonResponse, errorResponse } from '../../utils/response.js';
 
 const PROJECT_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
+function nonNegativeInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+}
+
+export async function mirror25jiLeaderboardStats(env, userId, data, now) {
+  const root = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  const candidate = root.userStats && typeof root.userStats === 'object'
+    && !Array.isArray(root.userStats) ? root.userStats : root;
+  const achievements = Array.isArray(candidate.unlocked_achievements)
+    ? new Set(candidate.unlocked_achievements.filter((id) => typeof id === 'string')).size
+    : 0;
+  const date = new Date(now).toISOString().slice(0, 10);
+  const metrics = [
+    ['songs_played', nonNegativeInteger(candidate.songs_played)],
+    ['streak_days', nonNegativeInteger(candidate.streak_days)],
+    ['achievements_unlocked', achievements],
+  ];
+
+  for (const [metric, value] of metrics) {
+    await env.DB.prepare(`
+      INSERT INTO user_stats (user_id, project, metric_name, metric_value, date, created_at, updated_at)
+      VALUES (?, '25ji', ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, project, metric_name, date) DO UPDATE SET
+        metric_value = MAX(CAST(metric_value AS INTEGER), CAST(excluded.metric_value AS INTEGER)),
+        updated_at = excluded.updated_at
+    `).bind(userId, metric, String(value), date, now, now).run();
+  }
+}
+
 /**
  * 获取云端同步数据
  * GET /user/sync?project=25ji
@@ -156,6 +186,10 @@ export async function uploadSyncData(request, env, user) {
       now,
       now,
     ).run();
+
+    if (project === '25ji') {
+      await mirror25jiLeaderboardStats(env, user.id, mergedData, now);
+    }
 
     return jsonResponse({
       success: true,

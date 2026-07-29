@@ -40,6 +40,17 @@ function makeD1() {
       created_at INTEGER NOT NULL,
       UNIQUE(user_id, project)
     );
+    CREATE TABLE user_stats (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      project TEXT NOT NULL,
+      metric_name TEXT NOT NULL,
+      metric_value TEXT NOT NULL,
+      date TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, project, metric_name, date)
+    );
   `);
 
   return {
